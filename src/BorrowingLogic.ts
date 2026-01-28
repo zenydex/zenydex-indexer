@@ -1,4 +1,4 @@
-import { ponder } from "@/generated";
+import { ponder } from "ponder:registry";
 import { Borrower, CollateralEvent } from "../ponder.schema";
 
 ponder.on("BorrowingLogic:CollateralDeposited", async ({ event, context }) => {
