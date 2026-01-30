@@ -65,3 +65,33 @@ export const CollateralEvent = onchainTable("CollateralEvent", (t) => ({
   timestamp: t.integer(),
   txHash: t.hex(),
 }));
+
+// Global protocol metrics for TVL, volume, active users, etc.
+export const ProtocolMetrics = onchainTable("ProtocolMetrics", (t) => ({
+  id: t.text().primaryKey(), // "GLOBAL"
+  totalValueLocked: t.bigint(), // Total collateral deposited
+  totalBorrowVolume: t.bigint(), // Cumulative borrowed amount
+  totalRepaidVolume: t.bigint(), // Cumulative repaid amount
+  totalLiquidatedVolume: t.bigint(), // Cumulative liquidated amount
+  activeLoans: t.integer(), // Currently active loans
+  totalLoans: t.integer(), // Total loans created
+  activeBorrowers: t.integer(), // Borrowers with active loans
+  totalBorrowers: t.integer(), // Total unique borrowers
+  activeLenders: t.integer(), // Lenders with active offers
+  totalLenders: t.integer(), // Total unique lenders
+  activeOffers: t.integer(), // Currently active offers
+  totalOffers: t.integer(), // Total offers created
+  totalInterestPaid: t.bigint(), // Cumulative interest paid
+  lastUpdated: t.integer(),
+}));
+
+// Track unique users (lenders and borrowers)
+export const User = onchainTable("User", (t) => ({
+  id: t.hex().primaryKey(), // user address
+  isLender: t.boolean(),
+  isBorrower: t.boolean(),
+  activeLoansAsBorrower: t.integer(),
+  activeOffersAsLender: t.integer(),
+  firstSeenAt: t.integer(),
+  lastActiveAt: t.integer(),
+}));
