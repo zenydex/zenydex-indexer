@@ -3,7 +3,7 @@ import schema from "ponder:schema";
 import { Hono } from "hono";
 import { client, graphql } from "ponder";
 import { cors } from "hono/cors";
-import { eq, desc, sql } from "ponder";
+import { eq, desc, and } from "ponder";
 
 const app = new Hono();
 
@@ -14,29 +14,70 @@ app.use("/sql/*", client({ db, schema }));
 
 // REST endpoint for protocol metrics
 app.get("/api/metrics", async (c) => {
-  const metrics = await db.select().from(schema.ProtocolMetrics).where(eq(schema.ProtocolMetrics.id, "GLOBAL")).limit(1);
+  const chainId = c.req.query("chainId");
+  const metricsId = chainId ? `GLOBAL-${chainId}` : null;
 
-  if (metrics.length === 0) {
-    return c.json({
-      tvl: "0",
-      totalBorrowVolume: "0",
-      totalRepaidVolume: "0",
-      totalLiquidatedVolume: "0",
-      activeLoans: 0,
-      totalLoans: 0,
-      activeBorrowers: 0,
-      totalBorrowers: 0,
-      activeLenders: 0,
-      totalLenders: 0,
-      activeOffers: 0,
-      totalOffers: 0,
-      totalInterestPaid: "0",
-      lastUpdated: 0,
-    });
+  if (metricsId) {
+    const metrics = await db.select().from(schema.ProtocolMetrics).where(eq(schema.ProtocolMetrics.id, metricsId)).limit(1);
+
+    if (metrics.length === 0) {
+      return c.json(emptyMetrics());
+    }
+
+    return c.json(formatMetrics(metrics[0]!));
   }
 
-  const m = metrics[0]!;
-  return c.json({
+  // No chainId specified - return all metrics rows
+  const metrics = await db.select().from(schema.ProtocolMetrics);
+  if (metrics.length === 0) {
+    return c.json(emptyMetrics());
+  }
+
+  // Aggregate across chains
+  const aggregated = metrics.reduce(
+    (acc, m) => ({
+      tvl: (BigInt(acc.tvl) + (m.totalValueLocked ?? 0n)).toString(),
+      totalBorrowVolume: (BigInt(acc.totalBorrowVolume) + (m.totalBorrowVolume ?? 0n)).toString(),
+      totalRepaidVolume: (BigInt(acc.totalRepaidVolume) + (m.totalRepaidVolume ?? 0n)).toString(),
+      totalLiquidatedVolume: (BigInt(acc.totalLiquidatedVolume) + (m.totalLiquidatedVolume ?? 0n)).toString(),
+      activeLoans: acc.activeLoans + (m.activeLoans ?? 0),
+      totalLoans: acc.totalLoans + (m.totalLoans ?? 0),
+      activeBorrowers: acc.activeBorrowers + (m.activeBorrowers ?? 0),
+      totalBorrowers: acc.totalBorrowers + (m.totalBorrowers ?? 0),
+      activeLenders: acc.activeLenders + (m.activeLenders ?? 0),
+      totalLenders: acc.totalLenders + (m.totalLenders ?? 0),
+      activeOffers: acc.activeOffers + (m.activeOffers ?? 0),
+      totalOffers: acc.totalOffers + (m.totalOffers ?? 0),
+      totalInterestPaid: (BigInt(acc.totalInterestPaid) + (m.totalInterestPaid ?? 0n)).toString(),
+      lastUpdated: Math.max(acc.lastUpdated, m.lastUpdated ?? 0),
+    }),
+    emptyMetrics()
+  );
+
+  return c.json(aggregated);
+});
+
+function emptyMetrics() {
+  return {
+    tvl: "0",
+    totalBorrowVolume: "0",
+    totalRepaidVolume: "0",
+    totalLiquidatedVolume: "0",
+    activeLoans: 0,
+    totalLoans: 0,
+    activeBorrowers: 0,
+    totalBorrowers: 0,
+    activeLenders: 0,
+    totalLenders: 0,
+    activeOffers: 0,
+    totalOffers: 0,
+    totalInterestPaid: "0",
+    lastUpdated: 0,
+  };
+}
+
+function formatMetrics(m: any) {
+  return {
     tvl: m.totalValueLocked?.toString() ?? "0",
     totalBorrowVolume: m.totalBorrowVolume?.toString() ?? "0",
     totalRepaidVolume: m.totalRepaidVolume?.toString() ?? "0",
@@ -51,15 +92,22 @@ app.get("/api/metrics", async (c) => {
     totalOffers: m.totalOffers ?? 0,
     totalInterestPaid: m.totalInterestPaid?.toString() ?? "0",
     lastUpdated: m.lastUpdated ?? 0,
-  });
-});
+  };
+}
 
 // REST endpoint for top borrowers
 app.get("/api/top-borrowers", async (c) => {
   const limit = parseInt(c.req.query("limit") ?? "10");
+  const chainId = c.req.query("chainId");
+
+  const conditions = chainId
+    ? [eq(schema.Borrower.chainId, Number(chainId))]
+    : [];
+
   const borrowers = await db
     .select()
     .from(schema.Borrower)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.Borrower.totalDebt))
     .limit(limit);
 
@@ -77,16 +125,22 @@ app.get("/api/top-borrowers", async (c) => {
 // REST endpoint for active offers
 app.get("/api/active-offers", async (c) => {
   const limit = parseInt(c.req.query("limit") ?? "20");
+  const chainId = c.req.query("chainId");
+
+  const conditions = [eq(schema.Offer.status, "ACTIVE")];
+  if (chainId) conditions.push(eq(schema.Offer.chainId, Number(chainId)));
+
   const offers = await db
     .select()
     .from(schema.Offer)
-    .where(eq(schema.Offer.status, "ACTIVE"))
+    .where(and(...conditions))
     .orderBy(desc(schema.Offer.createdAt))
     .limit(limit);
 
   return c.json(
     offers.map((o) => ({
       id: o.id,
+      chainId: o.chainId,
       lender: o.lender,
       asset: o.asset,
       amount: o.amount?.toString() ?? "0",
@@ -102,16 +156,22 @@ app.get("/api/active-offers", async (c) => {
 // REST endpoint for active loans
 app.get("/api/active-loans", async (c) => {
   const limit = parseInt(c.req.query("limit") ?? "20");
+  const chainId = c.req.query("chainId");
+
+  const conditions = [eq(schema.Loan.status, "ACTIVE")];
+  if (chainId) conditions.push(eq(schema.Loan.chainId, Number(chainId)));
+
   const loans = await db
     .select()
     .from(schema.Loan)
-    .where(eq(schema.Loan.status, "ACTIVE"))
+    .where(and(...conditions))
     .orderBy(desc(schema.Loan.createdAt))
     .limit(limit);
 
   return c.json(
     loans.map((l) => ({
       id: l.id,
+      chainId: l.chainId,
       offerId: l.offerId,
       lender: l.lender,
       borrower: l.borrower,
@@ -130,22 +190,33 @@ app.get("/api/active-loans", async (c) => {
 // REST endpoint for recent activity
 app.get("/api/recent-activity", async (c) => {
   const limit = parseInt(c.req.query("limit") ?? "20");
+  const chainId = c.req.query("chainId");
+
+  const loanConditions = chainId
+    ? [eq(schema.LoanEvent.chainId, Number(chainId))]
+    : [];
+  const collateralConditions = chainId
+    ? [eq(schema.CollateralEvent.chainId, Number(chainId))]
+    : [];
 
   const loanEvents = await db
     .select()
     .from(schema.LoanEvent)
+    .where(loanConditions.length > 0 ? and(...loanConditions) : undefined)
     .orderBy(desc(schema.LoanEvent.timestamp))
     .limit(limit);
 
   const collateralEvents = await db
     .select()
     .from(schema.CollateralEvent)
+    .where(collateralConditions.length > 0 ? and(...collateralConditions) : undefined)
     .orderBy(desc(schema.CollateralEvent.timestamp))
     .limit(limit);
 
   const allEvents = [
     ...loanEvents.map((e) => ({
       type: "loan",
+      chainId: e.chainId,
       eventType: e.type,
       loanId: e.loanId,
       principal: e.principal?.toString() ?? "0",
@@ -155,6 +226,7 @@ app.get("/api/recent-activity", async (c) => {
     })),
     ...collateralEvents.map((e) => ({
       type: "collateral",
+      chainId: e.chainId,
       eventType: e.type,
       borrower: e.borrower,
       amount: e.amount?.toString() ?? "0",

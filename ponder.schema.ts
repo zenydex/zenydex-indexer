@@ -1,7 +1,8 @@
 import { onchainTable } from "ponder";
 
 export const Offer = onchainTable("Offer", (t) => ({
-  id: t.text().primaryKey(),
+  id: t.text().primaryKey(), // "{chainId}-{offerId}"
+  chainId: t.integer(),
   lender: t.hex(),
   asset: t.hex(),
   amount: t.bigint(),
@@ -14,7 +15,8 @@ export const Offer = onchainTable("Offer", (t) => ({
 }));
 
 export const Loan = onchainTable("Loan", (t) => ({
-  id: t.text().primaryKey(),
+  id: t.text().primaryKey(), // "{chainId}-{loanId}"
+  chainId: t.integer(),
   offerId: t.text(),
   lender: t.hex(),
   borrower: t.hex(),
@@ -31,7 +33,8 @@ export const Loan = onchainTable("Loan", (t) => ({
 }));
 
 export const Borrower = onchainTable("Borrower", (t) => ({
-  id: t.hex().primaryKey(), // borrower address
+  id: t.text().primaryKey(), // "{chainId}-{address}"
+  chainId: t.integer(),
   collateralAmount: t.bigint(),
   totalDebt: t.bigint(), // tracked across all active loans
   healthFactor: t.bigint(),
@@ -39,7 +42,8 @@ export const Borrower = onchainTable("Borrower", (t) => ({
 }));
 
 export const OfferEvent = onchainTable("OfferEvent", (t) => ({
-  id: t.text().primaryKey(),
+  id: t.text().primaryKey(), // "{chainId}-{txHash}-{logIndex}"
+  chainId: t.integer(),
   offerId: t.text(),
   type: t.text(), // "CREATED", "CANCELED"
   amount: t.bigint(),
@@ -48,7 +52,8 @@ export const OfferEvent = onchainTable("OfferEvent", (t) => ({
 }));
 
 export const LoanEvent = onchainTable("LoanEvent", (t) => ({
-  id: t.text().primaryKey(),
+  id: t.text().primaryKey(), // "{chainId}-{txHash}-{logIndex}"
+  chainId: t.integer(),
   loanId: t.text(),
   type: t.text(), // "FILLED", "REPAID", "LIQUIDATED"
   principal: t.bigint(),
@@ -58,7 +63,8 @@ export const LoanEvent = onchainTable("LoanEvent", (t) => ({
 }));
 
 export const CollateralEvent = onchainTable("CollateralEvent", (t) => ({
-  id: t.text().primaryKey(),
+  id: t.text().primaryKey(), // "{chainId}-{txHash}-{logIndex}"
+  chainId: t.integer(),
   borrower: t.hex(),
   type: t.text(), // "DEPOSITED", "WITHDRAWN", "SEIZED"
   amount: t.bigint(),
@@ -68,7 +74,8 @@ export const CollateralEvent = onchainTable("CollateralEvent", (t) => ({
 
 // Global protocol metrics for TVL, volume, active users, etc.
 export const ProtocolMetrics = onchainTable("ProtocolMetrics", (t) => ({
-  id: t.text().primaryKey(), // "GLOBAL"
+  id: t.text().primaryKey(), // "GLOBAL-{chainId}"
+  chainId: t.integer(),
   totalValueLocked: t.bigint(), // Total collateral deposited
   totalBorrowVolume: t.bigint(), // Cumulative borrowed amount
   totalRepaidVolume: t.bigint(), // Cumulative repaid amount
@@ -87,7 +94,8 @@ export const ProtocolMetrics = onchainTable("ProtocolMetrics", (t) => ({
 
 // Track unique users (lenders and borrowers)
 export const User = onchainTable("User", (t) => ({
-  id: t.hex().primaryKey(), // user address
+  id: t.text().primaryKey(), // "{chainId}-{address}"
+  chainId: t.integer(),
   isLender: t.boolean(),
   isBorrower: t.boolean(),
   activeLoansAsBorrower: t.integer(),
