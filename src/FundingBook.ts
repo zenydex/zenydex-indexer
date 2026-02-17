@@ -62,6 +62,7 @@ ponder.on("FundingBook:OfferCreated", async ({ event, context }) => {
     lender: offer.lender.toLowerCase() as `0x${string}`,
     asset: offer.asset,
     amount: offer.amount,
+    originalPrincipal: offer.originalPrincipal,
     ratePerYear: offer.ratePerYear,
     minDuration: offer.minDuration,
     maxDuration: offer.maxDuration,

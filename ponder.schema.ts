@@ -6,6 +6,7 @@ export const Offer = onchainTable("Offer", (t) => ({
   lender: t.hex(),
   asset: t.hex(),
   amount: t.bigint(),
+  originalPrincipal: t.bigint(),
   ratePerYear: t.bigint(),
   minDuration: t.integer(),
   maxDuration: t.integer(),
