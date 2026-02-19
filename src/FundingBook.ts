@@ -12,7 +12,8 @@ async function ensureProtocolMetrics(context: any, chainId: number, timestamp: n
     await context.db.insert(ProtocolMetrics).values({
       id,
       chainId,
-      totalValueLocked: 0n,
+      totalWethLocked: 0n,
+      totalUsdcLocked: 0n,
       totalBorrowVolume: 0n,
       totalRepaidVolume: 0n,
       totalLiquidatedVolume: 0n,
@@ -98,6 +99,7 @@ ponder.on("FundingBook:OfferCreated", async ({ event, context }) => {
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
     activeOffers: (prev.activeOffers ?? 0) + 1,
     totalOffers: (prev.totalOffers ?? 0) + 1,
+    totalUsdcLocked: (prev.totalUsdcLocked ?? 0n) + offer.amount,
     activeLenders: isNewLender ? (prev.activeLenders ?? 0) + 1 : prev.activeLenders,
     totalLenders: isNewLender ? (prev.totalLenders ?? 0) + 1 : prev.totalLenders,
     lastUpdated: timestamp,
@@ -134,9 +136,11 @@ ponder.on("FundingBook:OfferCanceled", async ({ event, context }) => {
       lastActiveAt: timestamp,
     }));
 
-    // Update protocol metrics
+    // Update protocol metrics — subtract remaining USDC from locked total
+    const canceledAmount = offer.amount ?? 0n;
     await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
       activeOffers: Math.max(0, (prev.activeOffers ?? 0) - 1),
+      totalUsdcLocked: (prev.totalUsdcLocked ?? 0n) - canceledAmount,
       lastUpdated: timestamp,
     }));
   }
@@ -228,10 +232,11 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
     txHash: event.transaction.hash,
   });
 
-  // Update protocol metrics
+  // Update protocol metrics — USDC leaves protocol when borrowed
   await ensureProtocolMetrics(context, chainId, timestamp);
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
     totalBorrowVolume: (prev.totalBorrowVolume ?? 0n) + filled,
+    totalUsdcLocked: (prev.totalUsdcLocked ?? 0n) - filled,
     activeLoans: (prev.activeLoans ?? 0) + 1,
     totalLoans: (prev.totalLoans ?? 0) + 1,
     activeBorrowers: hadNoActiveLoans ? (prev.activeBorrowers ?? 0) + 1 : prev.activeBorrowers,

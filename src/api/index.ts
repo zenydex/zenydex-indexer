@@ -36,7 +36,8 @@ app.get("/api/metrics", async (c) => {
   // Aggregate across chains
   const aggregated = metrics.reduce(
     (acc, m) => ({
-      tvl: (BigInt(acc.tvl) + (m.totalValueLocked ?? 0n)).toString(),
+      totalWethLocked: (BigInt(acc.totalWethLocked) + (m.totalWethLocked ?? 0n)).toString(),
+      totalUsdcLocked: (BigInt(acc.totalUsdcLocked) + (m.totalUsdcLocked ?? 0n)).toString(),
       totalBorrowVolume: (BigInt(acc.totalBorrowVolume) + (m.totalBorrowVolume ?? 0n)).toString(),
       totalRepaidVolume: (BigInt(acc.totalRepaidVolume) + (m.totalRepaidVolume ?? 0n)).toString(),
       totalLiquidatedVolume: (BigInt(acc.totalLiquidatedVolume) + (m.totalLiquidatedVolume ?? 0n)).toString(),
@@ -59,7 +60,8 @@ app.get("/api/metrics", async (c) => {
 
 function emptyMetrics() {
   return {
-    tvl: "0",
+    totalWethLocked: "0",
+    totalUsdcLocked: "0",
     totalBorrowVolume: "0",
     totalRepaidVolume: "0",
     totalLiquidatedVolume: "0",
@@ -78,7 +80,8 @@ function emptyMetrics() {
 
 function formatMetrics(m: any) {
   return {
-    tvl: m.totalValueLocked?.toString() ?? "0",
+    totalWethLocked: m.totalWethLocked?.toString() ?? "0",
+    totalUsdcLocked: m.totalUsdcLocked?.toString() ?? "0",
     totalBorrowVolume: m.totalBorrowVolume?.toString() ?? "0",
     totalRepaidVolume: m.totalRepaidVolume?.toString() ?? "0",
     totalLiquidatedVolume: m.totalLiquidatedVolume?.toString() ?? "0",

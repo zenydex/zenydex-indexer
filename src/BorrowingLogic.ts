@@ -12,7 +12,8 @@ async function ensureProtocolMetrics(context: any, chainId: number, timestamp: n
     await context.db.insert(ProtocolMetrics).values({
       id,
       chainId,
-      totalValueLocked: 0n,
+      totalWethLocked: 0n,
+      totalUsdcLocked: 0n,
       totalBorrowVolume: 0n,
       totalRepaidVolume: 0n,
       totalLiquidatedVolume: 0n,
@@ -63,7 +64,7 @@ ponder.on("BorrowingLogic:CollateralDeposited", async ({ event, context }) => {
   // Update TVL in protocol metrics
   await ensureProtocolMetrics(context, chainId, timestamp);
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
-    totalValueLocked: (prev.totalValueLocked ?? 0n) + amount,
+    totalWethLocked: (prev.totalWethLocked ?? 0n) + amount,
     lastUpdated: timestamp,
   }));
 });
@@ -92,7 +93,7 @@ ponder.on("BorrowingLogic:CollateralWithdrawn", async ({ event, context }) => {
 
   // Update TVL in protocol metrics
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
-    totalValueLocked: (prev.totalValueLocked ?? 0n) - amount,
+    totalWethLocked: (prev.totalWethLocked ?? 0n) - amount,
     lastUpdated: timestamp,
   }));
 });
@@ -140,7 +141,7 @@ ponder.on("BorrowingLogic:Liquidated", async ({ event, context }) => {
 
   // Update TVL in protocol metrics (collateral is removed from protocol)
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
-    totalValueLocked: (prev.totalValueLocked ?? 0n) - collateralSeized,
+    totalWethLocked: (prev.totalWethLocked ?? 0n) - collateralSeized,
     lastUpdated: timestamp,
   }));
 });

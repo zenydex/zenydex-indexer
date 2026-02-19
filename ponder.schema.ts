@@ -77,7 +77,8 @@ export const CollateralEvent = onchainTable("CollateralEvent", (t) => ({
 export const ProtocolMetrics = onchainTable("ProtocolMetrics", (t) => ({
   id: t.text().primaryKey(), // "GLOBAL-{chainId}"
   chainId: t.integer(),
-  totalValueLocked: t.bigint(), // Total collateral deposited
+  totalWethLocked: t.bigint(), // Total WETH collateral deposited
+  totalUsdcLocked: t.bigint(), // Total USDC in active offers
   totalBorrowVolume: t.bigint(), // Cumulative borrowed amount
   totalRepaidVolume: t.bigint(), // Cumulative repaid amount
   totalLiquidatedVolume: t.bigint(), // Cumulative liquidated amount
