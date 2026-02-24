@@ -213,14 +213,17 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
     lastActiveAt: timestamp,
   }));
 
-  // Update borrower's debt if they exist
-  const borrower = await context.db.find(Borrower, { id: borrowerScopedId });
-  if (borrower) {
-    await context.db.update(Borrower, { id: borrowerScopedId }).set((prev) => ({
-      totalDebt: (prev.totalDebt ?? 0n) + filled,
-      lastUpdated: timestamp,
-    }));
-  }
+  await context.db.insert(Borrower).values({
+    id: borrowerScopedId,
+    chainId,
+    collateralAmount: 0n,
+    totalDebt: filled,
+    healthFactor: 0n,
+    lastUpdated: timestamp,
+  }).onConflictDoUpdate((prev) => ({
+    totalDebt: (prev.totalDebt ?? 0n) + filled,
+    lastUpdated: timestamp,
+  }));
 
   await context.db.insert(LoanEvent).values({
     id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
@@ -270,7 +273,14 @@ ponder.on("FundingBook:Repaid", async ({ event, context }) => {
     status: isFullyRepaid ? "REPAID" : "ACTIVE",
   });
 
-  await context.db.update(Borrower, { id: borrowerScopedId }).set((prev) => ({
+  await context.db.insert(Borrower).values({
+    id: borrowerScopedId,
+    chainId,
+    collateralAmount: 0n,
+    totalDebt: 0n,
+    healthFactor: 0n,
+    lastUpdated: timestamp,
+  }).onConflictDoUpdate((prev) => ({
     totalDebt: (prev.totalDebt ?? 0n) - principalRepaid,
     lastUpdated: timestamp,
   }));
@@ -328,7 +338,14 @@ ponder.on("FundingBook:Liquidated", async ({ event, context }) => {
     const borrowerAddress = loan.borrower!;
     const borrowerScopedId = `${chainId}-${borrowerAddress}`;
 
-    await context.db.update(Borrower, { id: borrowerScopedId }).set((prev) => ({
+    await context.db.insert(Borrower).values({
+      id: borrowerScopedId,
+      chainId,
+      collateralAmount: 0n,
+      totalDebt: 0n,
+      healthFactor: 0n,
+      lastUpdated: timestamp,
+    }).onConflictDoUpdate((prev) => ({
       totalDebt: (prev.totalDebt ?? 0n) - principalCovered,
       lastUpdated: timestamp,
     }));
