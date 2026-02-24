@@ -105,7 +105,7 @@ export const FUNDING_BOOK_ABI = [
       }
     ],
     "outputs": [{ "name": "id", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "payable"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -253,7 +253,7 @@ export const FUNDING_BOOK_ABI = [
       { "name": "_amount", "type": "uint128", "internalType": "uint128" }
     ],
     "outputs": [],
-    "stateMutability": "payable"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",

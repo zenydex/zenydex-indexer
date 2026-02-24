@@ -59,6 +59,13 @@ export const BORROW_LOGIC_ABI = [
   },
   {
     "type": "function",
+    "name": "depositCollateralETH",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "fundingBook",
     "inputs": [],
     "outputs": [{ "name": "", "type": "address", "internalType": "contract FundingBook" }],
@@ -69,6 +76,16 @@ export const BORROW_LOGIC_ABI = [
     "name": "getHealthFactor",
     "inputs": [{ "name": "borrower", "type": "address", "internalType": "address" }],
     "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getMaxBorrowable",
+    "inputs": [
+      { "name": "borrower", "type": "address", "internalType": "address" },
+      { "name": "additionalCollateral", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [{ "name": "maxBorrow", "type": "uint256", "internalType": "uint256" }],
     "stateMutability": "view"
   },
   {
@@ -86,6 +103,7 @@ export const BORROW_LOGIC_ABI = [
       { "name": "_riskEngine", "type": "address", "internalType": "address" },
       { "name": "_fundingBook", "type": "address", "internalType": "address" },
       { "name": "_collateralToken", "type": "address", "internalType": "address" },
+      { "name": "_borrowToken", "type": "address", "internalType": "address" },
       { "name": "initialOwner", "type": "address", "internalType": "address" }
     ],
     "outputs": [],
@@ -113,7 +131,7 @@ export const BORROW_LOGIC_ABI = [
       { "name": "loanId", "type": "uint256", "internalType": "uint256" }
     ],
     "outputs": [],
-    "stateMutability": "payable"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -240,6 +258,17 @@ export const BORROW_LOGIC_ABI = [
   },
   {
     "type": "function",
+    "name": "takeFundingOfferETH",
+    "inputs": [
+      { "name": "offerId", "type": "uint256", "internalType": "uint256" },
+      { "name": "amount", "type": "uint128", "internalType": "uint128" },
+      { "name": "duration", "type": "uint32", "internalType": "uint32" }
+    ],
+    "outputs": [{ "name": "loanId", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "transferOwnership",
     "inputs": [{ "name": "newOwner", "type": "address", "internalType": "address" }],
     "outputs": [],
@@ -264,7 +293,21 @@ export const BORROW_LOGIC_ABI = [
   },
   {
     "type": "function",
+    "name": "weth",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "address", "internalType": "contract IWETH" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "withdrawCollateral",
+    "inputs": [{ "name": "amount", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "withdrawCollateralETH",
     "inputs": [{ "name": "amount", "type": "uint256", "internalType": "uint256" }],
     "outputs": [],
     "stateMutability": "nonpayable"
