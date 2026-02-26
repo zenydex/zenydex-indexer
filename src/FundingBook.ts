@@ -255,21 +255,16 @@ ponder.on("FundingBook:Repaid", async ({ event, context }) => {
   const timestamp = Number(event.block.timestamp);
   const scopedLoanId = `${chainId}-${loanId}`;
 
-  const loanData = await context.client.readContract({
-    abi: context.contracts.FundingBook.abi,
-    address: context.contracts.FundingBook.address as `0x${string}`,
-    functionName: "loans",
-    args: [loanId],
-  });
+  const loan = await context.db.find(Loan, { id: scopedLoanId });
+  if (!loan) return;
 
-  const borrowerAddress = loanData[1] as `0x${string}`;
+  const borrowerAddress = loan.borrower!;
   const borrowerScopedId = `${chainId}-${borrowerAddress}`;
-  const isFullyRepaid = loanData[3] === 0n;
+  const newPrincipal = (loan.principal ?? 0n) - principalRepaid;
+  const isFullyRepaid = newPrincipal <= 0n;
 
   await context.db.update(Loan, { id: scopedLoanId }).set({
-    principal: loanData[3],
-    unpaidInterest: loanData[8],
-    lastAccrualTs: loanData[7],
+    principal: isFullyRepaid ? 0n : newPrincipal,
     status: isFullyRepaid ? "REPAID" : "ACTIVE",
   });
 
@@ -337,35 +332,45 @@ ponder.on("FundingBook:Liquidated", async ({ event, context }) => {
   if (loan) {
     const borrowerAddress = loan.borrower!;
     const borrowerScopedId = `${chainId}-${borrowerAddress}`;
+    const isBorrowerZeroAddress = borrowerAddress === "0x0000000000000000000000000000000000000000";
 
-    await context.db.insert(Borrower).values({
-      id: borrowerScopedId,
-      chainId,
-      collateralAmount: 0n,
-      totalDebt: 0n,
-      healthFactor: 0n,
-      lastUpdated: timestamp,
-    }).onConflictDoUpdate((prev) => ({
-      totalDebt: (prev.totalDebt ?? 0n) - principalCovered,
-      lastUpdated: timestamp,
-    }));
+    if (!isBorrowerZeroAddress) {
+      await context.db.insert(Borrower).values({
+        id: borrowerScopedId,
+        chainId,
+        collateralAmount: 0n,
+        totalDebt: 0n,
+        healthFactor: 0n,
+        lastUpdated: timestamp,
+      }).onConflictDoUpdate((prev) => ({
+        totalDebt: (prev.totalDebt ?? 0n) - principalCovered,
+        lastUpdated: timestamp,
+      }));
 
-    // Update user's active loans count
-    const user = await context.db.find(User, { id: borrowerScopedId });
-    const willHaveNoActiveLoans = user && user.activeLoansAsBorrower === 1;
+      // Update user's active loans count
+      const user = await context.db.find(User, { id: borrowerScopedId });
+      const willHaveNoActiveLoans = user && user.activeLoansAsBorrower === 1;
 
-    await context.db.update(User, { id: borrowerScopedId }).set((prev) => ({
-      activeLoansAsBorrower: Math.max(0, (prev.activeLoansAsBorrower ?? 0) - 1),
-      lastActiveAt: timestamp,
-    }));
+      await context.db.update(User, { id: borrowerScopedId }).set((prev) => ({
+        activeLoansAsBorrower: Math.max(0, (prev.activeLoansAsBorrower ?? 0) - 1),
+        lastActiveAt: timestamp,
+      }));
 
-    // Update protocol metrics
-    await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
-      activeLoans: Math.max(0, (prev.activeLoans ?? 0) - 1),
-      totalLiquidatedVolume: (prev.totalLiquidatedVolume ?? 0n) + principalCovered,
-      activeBorrowers: willHaveNoActiveLoans ? Math.max(0, (prev.activeBorrowers ?? 0) - 1) : prev.activeBorrowers,
-      lastUpdated: timestamp,
-    }));
+      // Update protocol metrics
+      await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
+        activeLoans: Math.max(0, (prev.activeLoans ?? 0) - 1),
+        totalLiquidatedVolume: (prev.totalLiquidatedVolume ?? 0n) + principalCovered,
+        activeBorrowers: willHaveNoActiveLoans ? Math.max(0, (prev.activeBorrowers ?? 0) - 1) : prev.activeBorrowers,
+        lastUpdated: timestamp,
+      }));
+    } else {
+      // Zero address borrower - only update protocol metrics
+      await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
+        activeLoans: Math.max(0, (prev.activeLoans ?? 0) - 1),
+        totalLiquidatedVolume: (prev.totalLiquidatedVolume ?? 0n) + principalCovered,
+        lastUpdated: timestamp,
+      }));
+    }
   }
 
   await context.db.insert(LoanEvent).values({
