@@ -147,6 +147,7 @@ app.get("/api/active-offers", async (c) => {
       lender: o.lender,
       asset: o.asset,
       amount: o.amount?.toString() ?? "0",
+      originalPrincipal: o.originalPrincipal?.toString() ?? "0",
       ratePerYear: o.ratePerYear?.toString() ?? "0",
       minDuration: o.minDuration ?? 0,
       maxDuration: o.maxDuration ?? 0,
