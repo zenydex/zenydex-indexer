@@ -3,7 +3,7 @@ import schema from "ponder:schema";
 import { Hono } from "hono";
 import { client, graphql } from "ponder";
 import { cors } from "hono/cors";
-import { eq, desc, and } from "ponder";
+import { eq, desc, and, gt } from "ponder";
 
 const app = new Hono();
 
@@ -130,7 +130,7 @@ app.get("/api/active-offers", async (c) => {
   const limit = parseInt(c.req.query("limit") ?? "20");
   const chainId = c.req.query("chainId");
 
-  const conditions = [eq(schema.Offer.status, "ACTIVE")];
+  const conditions = [eq(schema.Offer.status, "ACTIVE"), gt(schema.Offer.amount, 0n)];
   if (chainId) conditions.push(eq(schema.Offer.chainId, Number(chainId)));
 
   const offers = await db
