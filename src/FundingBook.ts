@@ -116,6 +116,7 @@ ponder.on("FundingBook:OfferCanceled", async ({ event, context }) => {
 
   await context.db.update(Offer, { id: offerId }).set({
     status: "CANCELED",
+    amount: 0n,
   });
 
   await context.db.insert(OfferEvent).values({
