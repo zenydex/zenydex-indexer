@@ -520,6 +520,7 @@ ponder.on("FundingBook:Repaid", async ({ event, context }) => {
       activeLoans: Math.max(0, (prev.activeLoans ?? 0) - 1),
       totalRepaidVolume: (prev.totalRepaidVolume ?? 0n) + principalRepaid,
       totalInterestPaid: (prev.totalInterestPaid ?? 0n) + interestPaid,
+      totalUsdcLocked: (prev.totalUsdcLocked ?? 0n) + principalRepaid,
       activeBorrowers: willHaveNoActiveLoans ? Math.max(0, (prev.activeBorrowers ?? 0) - 1) : prev.activeBorrowers,
       lastUpdated: timestamp,
     }));
@@ -528,6 +529,7 @@ ponder.on("FundingBook:Repaid", async ({ event, context }) => {
     await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
       totalRepaidVolume: (prev.totalRepaidVolume ?? 0n) + principalRepaid,
       totalInterestPaid: (prev.totalInterestPaid ?? 0n) + interestPaid,
+      totalUsdcLocked: (prev.totalUsdcLocked ?? 0n) + principalRepaid,
       lastUpdated: timestamp,
     }));
   }
@@ -571,10 +573,11 @@ ponder.on("FundingBook:Liquidated", async ({ event, context }) => {
         lastActiveAt: timestamp,
       }));
 
-      // Update protocol metrics
+      // Update protocol metrics — USDC returns to lender via collateral liquidation
       await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
         activeLoans: Math.max(0, (prev.activeLoans ?? 0) - 1),
         totalLiquidatedVolume: (prev.totalLiquidatedVolume ?? 0n) + principalCovered,
+        totalUsdcLocked: (prev.totalUsdcLocked ?? 0n) + principalCovered,
         activeBorrowers: willHaveNoActiveLoans ? Math.max(0, (prev.activeBorrowers ?? 0) - 1) : prev.activeBorrowers,
         lastUpdated: timestamp,
       }));
@@ -583,6 +586,7 @@ ponder.on("FundingBook:Liquidated", async ({ event, context }) => {
       await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
         activeLoans: Math.max(0, (prev.activeLoans ?? 0) - 1),
         totalLiquidatedVolume: (prev.totalLiquidatedVolume ?? 0n) + principalCovered,
+        totalUsdcLocked: (prev.totalUsdcLocked ?? 0n) + principalCovered,
         lastUpdated: timestamp,
       }));
     }
