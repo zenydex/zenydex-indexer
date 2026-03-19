@@ -261,16 +261,23 @@ app.get("/api/leaderboard", async (c) => {
     .limit(limit);
 
   return c.json(
-    rows.map((r, i) => ({
-      rank: i + 1,
-      address: r.address,
-      points: r.points?.toString() ?? "0",
-      borrowVolume: r.borrowVolume?.toString() ?? "0",
-      lendVolume: r.lendVolume?.toString() ?? "0",
-      totalLoans: r.totalLoans ?? 0,
-      totalOffers: r.totalOffers ?? 0,
-      lastUpdated: r.lastUpdated ?? 0,
-    }))
+    rows.map((r, i) => {
+      const totalDurSecs = Number(r.totalDurationSecs ?? 0n);
+      const loans = r.totalLoans ?? 0;
+      const avgDurationDays = loans > 0 ? Math.round(totalDurSecs / loans / 86400) : 0;
+      return {
+        rank: i + 1,
+        address: r.address,
+        points: r.points?.toString() ?? "0",
+        borrowVolume: r.borrowVolume?.toString() ?? "0",
+        lendVolume: r.lendVolume?.toString() ?? "0",
+        totalLoans: loans,
+        totalOffers: r.totalOffers ?? 0,
+        avgDurationDays,
+        bestPnlBps: r.bestPnlBps ?? 0,
+        lastUpdated: r.lastUpdated ?? 0,
+      };
+    })
   );
 });
 

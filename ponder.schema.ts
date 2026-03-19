@@ -29,6 +29,7 @@ export const Loan = onchainTable("Loan", (t) => ({
   lastAccrualTs: t.integer(),
   unpaidInterest: t.bigint(),
   autoRenew: t.boolean(),
+  entryPrice: t.bigint(), // ETH price at borrow time (18 decimals)
   status: t.text(), // "ACTIVE", "REPAID", "LIQUIDATED"
   createdAt: t.integer(),
 }));
@@ -94,16 +95,18 @@ export const ProtocolMetrics = onchainTable("ProtocolMetrics", (t) => ({
   lastUpdated: t.integer(),
 }));
 
-// Leaderboard: per-user points (1 USDC volume = 100 points)
+// Leaderboard: duration-weighted points with PnL bonuses
 export const UserPoints = onchainTable("UserPoints", (t) => ({
   id: t.text().primaryKey(), // "{chainId}-{address}"
   chainId: t.integer(),
   address: t.hex(),
   borrowVolume: t.bigint(), // cumulative USDC borrowed (6 decimals)
   lendVolume: t.bigint(), // cumulative USDC lent (6 decimals)
-  totalLoans: t.integer(), // loans taken
+  totalLoans: t.integer(), // completed loans (repaid)
   totalOffers: t.integer(), // offers created
-  points: t.bigint(), // (borrowVolume + lendVolume) / 1e4 (i.e. volume * 100 / 1e6)
+  points: t.bigint(), // duration-weighted, PnL-boosted points
+  totalDurationSecs: t.bigint(), // sum of loan durations in seconds
+  bestPnlBps: t.integer(), // best PnL in basis points (e.g. 2300 = +23%)
   lastUpdated: t.integer(),
 }));
 
