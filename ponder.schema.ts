@@ -94,6 +94,19 @@ export const ProtocolMetrics = onchainTable("ProtocolMetrics", (t) => ({
   lastUpdated: t.integer(),
 }));
 
+// Leaderboard: per-user points (1 USDC volume = 100 points)
+export const UserPoints = onchainTable("UserPoints", (t) => ({
+  id: t.text().primaryKey(), // "{chainId}-{address}"
+  chainId: t.integer(),
+  address: t.hex(),
+  borrowVolume: t.bigint(), // cumulative USDC borrowed (6 decimals)
+  lendVolume: t.bigint(), // cumulative USDC lent (6 decimals)
+  totalLoans: t.integer(), // loans taken
+  totalOffers: t.integer(), // offers created
+  points: t.bigint(), // (borrowVolume + lendVolume) / 1e4 (i.e. volume * 100 / 1e6)
+  lastUpdated: t.integer(),
+}));
+
 // Track unique users (lenders and borrowers)
 export const User = onchainTable("User", (t) => ({
   id: t.text().primaryKey(), // "{chainId}-{address}"

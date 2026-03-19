@@ -1,8 +1,48 @@
 import { ponder } from "ponder:registry";
-import { Offer, Loan, Borrower, OfferEvent, LoanEvent, ProtocolMetrics, User } from "../ponder.schema";
+import { Offer, Loan, Borrower, OfferEvent, LoanEvent, ProtocolMetrics, User, UserPoints } from "../ponder.schema";
 
 function metricsId(chainId: number) {
   return `GLOBAL-${chainId}`;
+}
+
+function computePoints(borrowVolume: bigint, lendVolume: bigint): bigint {
+  // 1 USDC (1e6) = 100 points → divide by 1e4
+  return (borrowVolume + lendVolume) / 10000n;
+}
+
+async function updateUserPoints(
+  context: any,
+  chainId: number,
+  address: `0x${string}`,
+  timestamp: number,
+  add: { borrowVolume?: bigint; lendVolume?: bigint; loans?: number; offers?: number }
+) {
+  const id = `${chainId}-${address}`;
+  const bv = add.borrowVolume ?? 0n;
+  const lv = add.lendVolume ?? 0n;
+
+  await context.db.insert(UserPoints).values({
+    id,
+    chainId,
+    address,
+    borrowVolume: bv,
+    lendVolume: lv,
+    totalLoans: add.loans ?? 0,
+    totalOffers: add.offers ?? 0,
+    points: computePoints(bv, lv),
+    lastUpdated: timestamp,
+  }).onConflictDoUpdate((prev: any) => {
+    const newBv = (prev.borrowVolume ?? 0n) + bv;
+    const newLv = (prev.lendVolume ?? 0n) + lv;
+    return {
+      borrowVolume: newBv,
+      lendVolume: newLv,
+      totalLoans: (prev.totalLoans ?? 0) + (add.loans ?? 0),
+      totalOffers: (prev.totalOffers ?? 0) + (add.offers ?? 0),
+      points: computePoints(newBv, newLv),
+      lastUpdated: timestamp,
+    };
+  });
 }
 
 async function ensureProtocolMetrics(context: any, chainId: number, timestamp: number) {
@@ -104,6 +144,12 @@ ponder.on("FundingBook:OfferCreated", async ({ event, context }) => {
     totalLenders: isNewLender ? (prev.totalLenders ?? 0) + 1 : prev.totalLenders,
     lastUpdated: timestamp,
   }));
+
+  // Track lender points (lend volume)
+  await updateUserPoints(context, chainId, lenderAddress, timestamp, {
+    lendVolume: offer.amount,
+    offers: 1,
+  });
 });
 
 ponder.on("FundingBook:OfferCanceled", async ({ event, context }) => {
@@ -248,6 +294,12 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
     activeOffers: offerFullyFilled ? Math.max(0, (prev.activeOffers ?? 0) - 1) : prev.activeOffers,
     lastUpdated: timestamp,
   }));
+
+  // Track borrower points (borrow volume)
+  await updateUserPoints(context, chainId, borrowerAddress, timestamp, {
+    borrowVolume: filled,
+    loans: 1,
+  });
 });
 
 ponder.on("FundingBook:Repaid", async ({ event, context }) => {

@@ -244,6 +244,36 @@ app.get("/api/recent-activity", async (c) => {
   return c.json(allEvents);
 });
 
+// REST endpoint for leaderboard (points = volume * 100)
+app.get("/api/leaderboard", async (c) => {
+  const limit = parseInt(c.req.query("limit") ?? "50");
+  const chainId = c.req.query("chainId");
+
+  const conditions = chainId
+    ? [eq(schema.UserPoints.chainId, Number(chainId))]
+    : [];
+
+  const rows = await db
+    .select()
+    .from(schema.UserPoints)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(schema.UserPoints.points))
+    .limit(limit);
+
+  return c.json(
+    rows.map((r, i) => ({
+      rank: i + 1,
+      address: r.address,
+      points: r.points?.toString() ?? "0",
+      borrowVolume: r.borrowVolume?.toString() ?? "0",
+      lendVolume: r.lendVolume?.toString() ?? "0",
+      totalLoans: r.totalLoans ?? 0,
+      totalOffers: r.totalOffers ?? 0,
+      lastUpdated: r.lastUpdated ?? 0,
+    }))
+  );
+});
+
 app.use("/", graphql({ db, schema }));
 app.use("/graphql", graphql({ db, schema }));
 
