@@ -443,7 +443,14 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
     lastUpdated: timestamp,
   }));
 
-  // Track borrower volume and loan count (points awarded on repayment, not here)
+  // Instant base points at loan creation (1x duration, 1x PnL = minimum)
+  // Borrower base: amount / 1e6 * 8 (8 pts per USDC)
+  // Lender base: amount / 1e6 * 10 (10 pts per USDC)
+  const borrowerBasePts = (filled * 8n) / 1_000_000n;
+  const lenderBasePts = (filled * 10n) / 1_000_000n;
+  const lenderAddress = (loanData[0] as string).toLowerCase() as `0x${string}`;
+
+  // Award borrower base points + track volume
   await context.db.insert(UserPoints).values({
     id: `${chainId}-${borrowerAddress}`,
     chainId,
@@ -452,9 +459,9 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
     lendVolume: 0n,
     totalLoans: 1,
     totalOffers: 0,
-    points: 0n,
+    points: borrowerBasePts,
     lendingPoints: 0n,
-    borrowingPoints: 0n,
+    borrowingPoints: borrowerBasePts,
     bonusPoints: 0n,
     totalDurationSecs: 0n,
     bestPnlBps: 0,
@@ -462,6 +469,31 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
   }).onConflictDoUpdate((prev: any) => ({
     borrowVolume: (prev.borrowVolume ?? 0n) + filled,
     totalLoans: (prev.totalLoans ?? 0) + 1,
+    points: (prev.points ?? 0n) + borrowerBasePts,
+    borrowingPoints: (prev.borrowingPoints ?? 0n) + borrowerBasePts,
+    lastUpdated: timestamp,
+  }));
+
+  // Award lender base points for this loan
+  await context.db.insert(UserPoints).values({
+    id: `${chainId}-${lenderAddress}`,
+    chainId,
+    address: lenderAddress,
+    borrowVolume: 0n,
+    lendVolume: filled,
+    totalLoans: 0,
+    totalOffers: 0,
+    points: lenderBasePts,
+    lendingPoints: lenderBasePts,
+    borrowingPoints: 0n,
+    bonusPoints: 0n,
+    totalDurationSecs: 0n,
+    bestPnlBps: 0,
+    lastUpdated: timestamp,
+  }).onConflictDoUpdate((prev: any) => ({
+    lendVolume: (prev.lendVolume ?? 0n) + filled,
+    points: (prev.points ?? 0n) + lenderBasePts,
+    lendingPoints: (prev.lendingPoints ?? 0n) + lenderBasePts,
     lastUpdated: timestamp,
   }));
 });
@@ -545,23 +577,27 @@ ponder.on("FundingBook:Repaid", async ({ event, context }) => {
       pnlBps = Number(((exitPrice - entryPrice) * 10000n) / entryPrice);
     }
 
-    // Award borrower points: (USDC × 8) × duration × PnL
-    const borrowerPts = calcBorrowingPoints(fullAmount, durationSecs, pnlBps, false);
-    if (borrowerPts > 0n) {
+    // Award borrower bonus: full duration/PnL points minus base already given at FundingFilled
+    const borrowerFull = calcBorrowingPoints(fullAmount, durationSecs, pnlBps, false);
+    const borrowerBaseAlreadyGiven = (fullAmount * 8n) / 1_000_000n;
+    const borrowerBonus = borrowerFull > borrowerBaseAlreadyGiven ? borrowerFull - borrowerBaseAlreadyGiven : 0n;
+    if (borrowerBonus > 0n) {
       await awardLoanPoints(
         context, chainId,
         loan.borrower! as `0x${string}`,
-        timestamp, fullAmount, borrowerPts, durationSecs, pnlBps, true
+        timestamp, fullAmount, borrowerBonus, durationSecs, pnlBps, true
       );
     }
 
-    // Award lender points: (USDC × 10) × duration
-    const lenderPts = calcLendingPoints(fullAmount, durationSecs);
-    if (lenderPts > 0n && loan.lender) {
+    // Award lender bonus: full duration points minus base already given at FundingFilled
+    const lenderFull = calcLendingPoints(fullAmount, durationSecs);
+    const lenderBaseAlreadyGiven = (fullAmount * 10n) / 1_000_000n;
+    const lenderBonus = lenderFull > lenderBaseAlreadyGiven ? lenderFull - lenderBaseAlreadyGiven : 0n;
+    if (lenderBonus > 0n && loan.lender) {
       await awardLoanPoints(
         context, chainId,
         loan.lender as `0x${string}`,
-        timestamp, fullAmount, lenderPts, durationSecs, 0, false
+        timestamp, fullAmount, lenderBonus, durationSecs, 0, false
       );
     }
   }
