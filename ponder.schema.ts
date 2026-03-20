@@ -104,7 +104,10 @@ export const UserPoints = onchainTable("UserPoints", (t) => ({
   lendVolume: t.bigint(), // cumulative USDC lent (6 decimals)
   totalLoans: t.integer(), // completed loans (repaid)
   totalOffers: t.integer(), // offers created
-  points: t.bigint(), // duration-weighted, PnL-boosted points
+  points: t.bigint(), // total points (lending + borrowing + bonus)
+  lendingPoints: t.bigint(), // points from lending activity
+  borrowingPoints: t.bigint(), // points from borrowing activity
+  bonusPoints: t.bigint(), // milestone bonus points
   totalDurationSecs: t.bigint(), // sum of loan durations in seconds
   bestPnlBps: t.integer(), // best PnL in basis points (e.g. 2300 = +23%)
   lastUpdated: t.integer(),

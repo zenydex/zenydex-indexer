@@ -244,21 +244,43 @@ app.get("/api/recent-activity", async (c) => {
   return c.json(allEvents);
 });
 
-// REST endpoint for leaderboard (points = volume * 100)
+// REST endpoint for leaderboard
+// ?tab=overall|lenders|borrowers  &search=0x...  &chainId=8453
 app.get("/api/leaderboard", async (c) => {
   const limit = parseInt(c.req.query("limit") ?? "50");
   const chainId = c.req.query("chainId");
+  const tab = c.req.query("tab") ?? "overall";
+  const search = c.req.query("search")?.toLowerCase();
 
-  const conditions = chainId
-    ? [eq(schema.UserPoints.chainId, Number(chainId))]
-    : [];
+  const conditions = [];
+  if (chainId) conditions.push(eq(schema.UserPoints.chainId, Number(chainId)));
+  // Filter out zero-point entries
+  if (conditions.length > 0) {
+    // conditions already has chainId
+  }
 
-  const rows = await db
+  // Choose sort column based on tab
+  const sortCol = tab === "lenders"
+    ? desc(schema.UserPoints.lendingPoints)
+    : tab === "borrowers"
+    ? desc(schema.UserPoints.borrowingPoints)
+    : desc(schema.UserPoints.points);
+
+  let rows = await db
     .select()
     .from(schema.UserPoints)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(schema.UserPoints.points))
-    .limit(limit);
+    .orderBy(sortCol)
+    .limit(search ? 200 : limit); // fetch more if searching
+
+  // Filter by search (address prefix/suffix match)
+  if (search) {
+    rows = rows.filter((r) => r.address?.toLowerCase().includes(search));
+    rows = rows.slice(0, limit);
+  }
+
+  // Filter out zero-point rows for cleaner display
+  rows = rows.filter((r) => (r.points ?? 0n) > 0n);
 
   return c.json(
     rows.map((r, i) => {
@@ -269,6 +291,9 @@ app.get("/api/leaderboard", async (c) => {
         rank: i + 1,
         address: r.address,
         points: r.points?.toString() ?? "0",
+        lendingPoints: r.lendingPoints?.toString() ?? "0",
+        borrowingPoints: r.borrowingPoints?.toString() ?? "0",
+        bonusPoints: r.bonusPoints?.toString() ?? "0",
         borrowVolume: r.borrowVolume?.toString() ?? "0",
         lendVolume: r.lendVolume?.toString() ?? "0",
         totalLoans: loans,

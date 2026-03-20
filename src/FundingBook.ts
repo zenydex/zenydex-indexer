@@ -38,30 +38,63 @@ async function readEthPrice(context: any, chainId: number): Promise<bigint> {
   }
 }
 
-// Duration multiplier: <1d=0, 1-7d=100, 7-30d=150, 30d+=200 (scaled by 100)
+// Duration multiplier (scaled by 100): <1d=0, 1-6d=100, 7-13d=125, 14-29d=150, 30-59d=200, 60-89d=250, 90d+=300
 function durationMultiplier(durationSecs: number): number {
   const days = durationSecs / 86400;
   if (days < 1) return 0;
   if (days < 7) return 100;
+  if (days < 14) return 125;
   if (days < 30) return 150;
-  return 200;
+  if (days < 60) return 200;
+  if (days < 90) return 250;
+  return 300;
 }
 
-// Calculate BONUS points on repayment (on top of instant base already awarded)
-// Instant base = amount * 100 / 1e6 (already given at creation)
-// Full duration-weighted = amount * 100 / 1e6 * durationMult
-// Bonus = full - instant base + PnL bonus
+// PnL multiplier (scaled by 100): loss/flat=100, 2-10%=125, 10-25%=150, 25-50%=200, 50%+=250
+function pnlMultiplier(pnlBps: number, liquidated: boolean): number {
+  if (liquidated) return 100; // duration applies, no PnL bonus
+  const pct = pnlBps / 100;
+  if (pct < 2) return 100;
+  if (pct < 10) return 125;
+  if (pct < 25) return 150;
+  if (pct < 50) return 200;
+  return 250;
+}
+
+// Lending points: (USDC amount × 10) × duration multiplier
+// amount is in 6-decimal USDC, so divide by 1e6 to get USDC, then × 10
+function calcLendingPoints(amount: bigint, durationSecs: number): bigint {
+  const durMul = durationMultiplier(durationSecs);
+  if (durMul === 0) return 0n;
+  // (amount / 1e6) * 10 * (durMul / 100) = amount * 10 * durMul / (1e6 * 100)
+  return (amount * 10n * BigInt(durMul)) / 100_000_000n;
+}
+
+// Borrowing points: (USDC amount × 8) × duration multiplier × PnL multiplier
+function calcBorrowingPoints(amount: bigint, durationSecs: number, pnlBps: number, liquidated: boolean): bigint {
+  const durMul = durationMultiplier(durationSecs);
+  if (durMul === 0) return 0n;
+  const pnlMul = pnlMultiplier(pnlBps, liquidated);
+  // (amount / 1e6) * 8 * (durMul / 100) * (pnlMul / 100)
+  return (amount * 8n * BigInt(durMul) * BigInt(pnlMul)) / 10_000_000_000n;
+}
+
+// Milestone bonuses
+function calcMilestoneBonus(totalLoansAfter: number, totalOffersAfter: number, isFirstLoan: boolean, isFirstOffer: boolean, pnlBps: number, durationSecs: number, isFirstProfitable: boolean, isFirstLongLoan: boolean): bigint {
+  let bonus = 0n;
+  if (isFirstLoan) bonus += 500n;
+  if (isFirstOffer) bonus += 300n;
+  if (totalLoansAfter === 5) bonus += 1000n;
+  if (totalLoansAfter === 10) bonus += 2500n;
+  if (totalLoansAfter === 25) bonus += 5000n;
+  if (isFirstLongLoan && durationSecs >= 30 * 86400) bonus += 500n;
+  if (isFirstProfitable && pnlBps > 0) bonus += 750n;
+  return bonus;
+}
+
+// Legacy wrapper for backward compat during transition — calculates total repayment points
 function calcRepaymentBonus(amount: bigint, durationSecs: number, pnlBps: number): bigint {
-  const mult = durationMultiplier(durationSecs);
-  if (mult === 0) return 0n;
-  const instantBase = amount / 10000n; // already awarded
-  const fullWeighted = (amount * BigInt(mult)) / 1000000n;
-  let bonus = fullWeighted - instantBase; // duration uplift (0 for 1x, positive for 1.5x/2x)
-  // PnL bonus: +50% of the full weighted amount if profitable
-  if (pnlBps > 0) {
-    bonus = bonus + fullWeighted / 2n;
-  }
-  return bonus > 0n ? bonus : 0n;
+  return calcBorrowingPoints(amount, durationSecs, pnlBps, false);
 }
 
 async function awardLoanPoints(
@@ -73,11 +106,24 @@ async function awardLoanPoints(
   points: bigint,
   durationSecs: number,
   pnlBps: number,
-  isLoan: boolean,
+  isBorrower: boolean,
 ) {
   const id = `${chainId}-${address}`;
-  const bv = isLoan ? volume : 0n;
-  const lv = isLoan ? 0n : volume;
+  const bv = isBorrower ? volume : 0n;
+  const lv = isBorrower ? 0n : volume;
+  const bp = isBorrower ? points : 0n;
+  const lp = isBorrower ? 0n : points;
+
+  // Check for milestone bonuses
+  const existing = await context.db.find(UserPoints, { id });
+  const prevLoans = existing?.totalLoans ?? 0;
+  const prevBestPnl = existing?.bestPnlBps ?? 0;
+  const newLoans = prevLoans + (isBorrower ? 1 : 0);
+  const isFirstLoan = isBorrower && prevLoans === 0;
+  const isFirstProfitable = isBorrower && pnlBps > 0 && prevBestPnl <= 0;
+  const isFirstLongLoan = isBorrower && durationSecs >= 30 * 86400 && (existing?.totalDurationSecs ?? 0n) < BigInt(30 * 86400);
+  const bonus = calcMilestoneBonus(newLoans, 0, isFirstLoan, false, pnlBps, durationSecs, isFirstProfitable, isFirstLongLoan);
+  const totalPts = points + bonus;
 
   await context.db.insert(UserPoints).values({
     id,
@@ -85,25 +131,30 @@ async function awardLoanPoints(
     address,
     borrowVolume: bv,
     lendVolume: lv,
-    totalLoans: isLoan ? 1 : 0,
+    totalLoans: isBorrower ? 1 : 0,
     totalOffers: 0,
-    points,
+    points: totalPts,
+    lendingPoints: lp,
+    borrowingPoints: bp,
+    bonusPoints: bonus,
     totalDurationSecs: BigInt(durationSecs),
     bestPnlBps: pnlBps,
     lastUpdated: timestamp,
   }).onConflictDoUpdate((prev: any) => ({
     borrowVolume: (prev.borrowVolume ?? 0n) + bv,
     lendVolume: (prev.lendVolume ?? 0n) + lv,
-    totalLoans: (prev.totalLoans ?? 0) + (isLoan ? 1 : 0),
-    points: (prev.points ?? 0n) + points,
+    totalLoans: (prev.totalLoans ?? 0) + (isBorrower ? 1 : 0),
+    points: (prev.points ?? 0n) + totalPts,
+    lendingPoints: (prev.lendingPoints ?? 0n) + lp,
+    borrowingPoints: (prev.borrowingPoints ?? 0n) + bp,
+    bonusPoints: (prev.bonusPoints ?? 0n) + bonus,
     totalDurationSecs: (prev.totalDurationSecs ?? 0n) + BigInt(durationSecs),
     bestPnlBps: Math.max(prev.bestPnlBps ?? 0, pnlBps),
     lastUpdated: timestamp,
   }));
 }
 
-// Award instant base points on offer creation (lenders lock real capital)
-// Base = amount * 100 / 1e6 (1 USDC = 100 points, no duration weight)
+// Track offer creation — no instant points, lending points awarded on repayment
 async function trackOfferCreated(
   context: any,
   chainId: number,
@@ -112,7 +163,11 @@ async function trackOfferCreated(
   timestamp: number,
 ) {
   const id = `${chainId}-${address}`;
-  const instantPts = amount / 10000n; // amount * 100 / 1e6
+  // Check for first-offer milestone
+  const existing = await context.db.find(UserPoints, { id });
+  const isFirstOffer = !existing || (existing.totalOffers ?? 0) === 0;
+  const bonus = isFirstOffer ? 300n : 0n;
+
   await context.db.insert(UserPoints).values({
     id,
     chainId,
@@ -121,14 +176,18 @@ async function trackOfferCreated(
     lendVolume: amount,
     totalLoans: 0,
     totalOffers: 1,
-    points: instantPts,
+    points: bonus,
+    lendingPoints: 0n,
+    borrowingPoints: 0n,
+    bonusPoints: bonus,
     totalDurationSecs: 0n,
     bestPnlBps: 0,
     lastUpdated: timestamp,
   }).onConflictDoUpdate((prev: any) => ({
     lendVolume: (prev.lendVolume ?? 0n) + amount,
     totalOffers: (prev.totalOffers ?? 0) + 1,
-    points: (prev.points ?? 0n) + instantPts,
+    points: (prev.points ?? 0n) + bonus,
+    bonusPoints: (prev.bonusPoints ?? 0n) + bonus,
     lastUpdated: timestamp,
   }));
 }
@@ -384,24 +443,24 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
     lastUpdated: timestamp,
   }));
 
-  // Instant base points for borrower (duration + PnL bonus added on repayment)
-  const instantBorrowerPts = filled / 10000n; // amount * 100 / 1e6
+  // Track borrower volume (points awarded on repayment, not here)
   await context.db.insert(UserPoints).values({
     id: `${chainId}-${borrowerAddress}`,
     chainId,
     address: borrowerAddress,
     borrowVolume: filled,
     lendVolume: 0n,
-    totalLoans: 1,
+    totalLoans: 0,
     totalOffers: 0,
-    points: instantBorrowerPts,
+    points: 0n,
+    lendingPoints: 0n,
+    borrowingPoints: 0n,
+    bonusPoints: 0n,
     totalDurationSecs: 0n,
     bestPnlBps: 0,
     lastUpdated: timestamp,
   }).onConflictDoUpdate((prev: any) => ({
     borrowVolume: (prev.borrowVolume ?? 0n) + filled,
-    totalLoans: (prev.totalLoans ?? 0) + 1,
-    points: (prev.points ?? 0n) + instantBorrowerPts,
     lastUpdated: timestamp,
   }));
 });
@@ -485,8 +544,8 @@ ponder.on("FundingBook:Repaid", async ({ event, context }) => {
       pnlBps = Number(((exitPrice - entryPrice) * 10000n) / entryPrice);
     }
 
-    // Award borrower points (with PnL bonus)
-    const borrowerPts = calcRepaymentBonus(fullAmount, durationSecs, pnlBps);
+    // Award borrower points: (USDC × 8) × duration × PnL
+    const borrowerPts = calcBorrowingPoints(fullAmount, durationSecs, pnlBps, false);
     if (borrowerPts > 0n) {
       await awardLoanPoints(
         context, chainId,
@@ -495,8 +554,8 @@ ponder.on("FundingBook:Repaid", async ({ event, context }) => {
       );
     }
 
-    // Award lender points (no PnL bonus — they provided liquidity)
-    const lenderPts = calcRepaymentBonus(fullAmount, durationSecs, 0);
+    // Award lender points: (USDC × 10) × duration
+    const lenderPts = calcLendingPoints(fullAmount, durationSecs);
     if (lenderPts > 0n && loan.lender) {
       await awardLoanPoints(
         context, chainId,
