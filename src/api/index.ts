@@ -279,14 +279,43 @@ app.get("/api/leaderboard", async (c) => {
     rows = rows.slice(0, limit);
   }
 
-  // Filter out zero-point rows for cleaner display
-  rows = rows.filter((r) => (r.points ?? 0n) > 0n);
+  // Calculate avg duration per user from actual Loan records
+  const allLoans = await db
+    .select()
+    .from(schema.Loan)
+    .where(chainId ? eq(schema.Loan.chainId, Number(chainId)) : undefined);
+
+  // Build per-address avg duration map
+  const durationMap = new Map<string, { totalSecs: number; count: number }>();
+  const now = Math.floor(Date.now() / 1000);
+  for (const loan of allLoans) {
+    const addr = loan.borrower?.toLowerCase();
+    if (!addr || !loan.startTs) continue;
+    const endTs = loan.status === "ACTIVE" ? now : (loan.endTs ?? now);
+    const durSecs = endTs - loan.startTs;
+    if (durSecs <= 0) continue;
+    const existing = durationMap.get(addr) ?? { totalSecs: 0, count: 0 };
+    existing.totalSecs += durSecs;
+    existing.count += 1;
+    durationMap.set(addr, existing);
+
+    // Also count for lender
+    const lenderAddr = loan.lender?.toLowerCase();
+    if (lenderAddr) {
+      const lExisting = durationMap.get(lenderAddr) ?? { totalSecs: 0, count: 0 };
+      lExisting.totalSecs += durSecs;
+      lExisting.count += 1;
+      durationMap.set(lenderAddr, lExisting);
+    }
+  }
 
   return c.json(
     rows.map((r, i) => {
-      const totalDurSecs = Number(r.totalDurationSecs ?? 0n);
-      const loans = r.totalLoans ?? 0;
-      const avgDurationDays = loans > 0 ? Math.round(totalDurSecs / loans / 86400) : 0;
+      const addr = r.address?.toLowerCase() ?? "";
+      const durData = durationMap.get(addr);
+      const avgDurationDays = durData && durData.count > 0
+        ? Math.round(durData.totalSecs / durData.count / 86400)
+        : 0;
       return {
         rank: i + 1,
         address: r.address,
@@ -296,10 +325,9 @@ app.get("/api/leaderboard", async (c) => {
         bonusPoints: r.bonusPoints?.toString() ?? "0",
         borrowVolume: r.borrowVolume?.toString() ?? "0",
         lendVolume: r.lendVolume?.toString() ?? "0",
-        totalLoans: loans,
+        totalLoans: r.totalLoans ?? 0,
         totalOffers: r.totalOffers ?? 0,
         avgDurationDays,
-        bestPnlBps: r.bestPnlBps ?? 0,
         lastUpdated: r.lastUpdated ?? 0,
       };
     })

@@ -125,13 +125,14 @@ async function awardLoanPoints(
   const bonus = calcMilestoneBonus(newLoans, 0, isFirstLoan, false, pnlBps, durationSecs, isFirstProfitable, isFirstLongLoan);
   const totalPts = points + bonus;
 
+  // Note: totalLoans already incremented at FundingFilled time, don't double-count
   await context.db.insert(UserPoints).values({
     id,
     chainId,
     address,
     borrowVolume: bv,
     lendVolume: lv,
-    totalLoans: isBorrower ? 1 : 0,
+    totalLoans: 0,
     totalOffers: 0,
     points: totalPts,
     lendingPoints: lp,
@@ -143,7 +144,6 @@ async function awardLoanPoints(
   }).onConflictDoUpdate((prev: any) => ({
     borrowVolume: (prev.borrowVolume ?? 0n) + bv,
     lendVolume: (prev.lendVolume ?? 0n) + lv,
-    totalLoans: (prev.totalLoans ?? 0) + (isBorrower ? 1 : 0),
     points: (prev.points ?? 0n) + totalPts,
     lendingPoints: (prev.lendingPoints ?? 0n) + lp,
     borrowingPoints: (prev.borrowingPoints ?? 0n) + bp,
@@ -443,14 +443,14 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
     lastUpdated: timestamp,
   }));
 
-  // Track borrower volume (points awarded on repayment, not here)
+  // Track borrower volume and loan count (points awarded on repayment, not here)
   await context.db.insert(UserPoints).values({
     id: `${chainId}-${borrowerAddress}`,
     chainId,
     address: borrowerAddress,
     borrowVolume: filled,
     lendVolume: 0n,
-    totalLoans: 0,
+    totalLoans: 1,
     totalOffers: 0,
     points: 0n,
     lendingPoints: 0n,
@@ -461,6 +461,7 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
     lastUpdated: timestamp,
   }).onConflictDoUpdate((prev: any) => ({
     borrowVolume: (prev.borrowVolume ?? 0n) + filled,
+    totalLoans: (prev.totalLoans ?? 0) + 1,
     lastUpdated: timestamp,
   }));
 });
