@@ -310,7 +310,21 @@ ponder.on("FundingBook:OfferCanceled", async ({ event, context }) => {
 
   const offer = await context.db.find(Offer, { id: offerId });
 
-  await context.db.update(Offer, { id: offerId }).set({
+  // Use insert+onConflict instead of update to ensure the write persists
+  await context.db.insert(Offer).values({
+    id: offerId,
+    chainId,
+    lender: offer?.lender ?? ("0x0000000000000000000000000000000000000000" as `0x${string}`),
+    asset: offer?.asset ?? ("0x0000000000000000000000000000000000000000" as `0x${string}`),
+    amount: 0n,
+    originalPrincipal: offer?.originalPrincipal ?? 0n,
+    ratePerYear: offer?.ratePerYear ?? 0n,
+    minDuration: offer?.minDuration ?? 0,
+    maxDuration: offer?.maxDuration ?? 0,
+    autoRenew: offer?.autoRenew ?? false,
+    status: "CANCELED",
+    createdAt: offer?.createdAt ?? timestamp,
+  }).onConflictDoUpdate({
     status: "CANCELED",
     amount: 0n,
   });
