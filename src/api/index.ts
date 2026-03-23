@@ -337,6 +337,80 @@ app.get("/api/leaderboard", async (c) => {
   );
 });
 
+// ============ Agent Platform Endpoints ============
+
+// Agent leaderboard — ranked by total profit
+app.get("/api/agents/leaderboard", async (c) => {
+  const limit = parseInt(c.req.query("limit") ?? "50");
+  const chainId = c.req.query("chainId");
+
+  const conditions = [];
+  if (chainId) conditions.push(eq(schema.Agent.chainId, Number(chainId)));
+
+  const agents = await db
+    .select()
+    .from(schema.Agent)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(schema.Agent.totalProfit))
+    .limit(limit);
+
+  return c.json(
+    agents.map((a, i) => ({
+      rank: i + 1,
+      address: a.address,
+      owner: a.owner,
+      status: a.status,
+      totalCycles: a.totalCycles ?? 0,
+      winningCycles: a.winningCycles ?? 0,
+      winRate:
+        (a.totalCycles ?? 0) > 0
+          ? Math.round(((a.winningCycles ?? 0) / (a.totalCycles ?? 1)) * 100)
+          : 0,
+      totalProfit: a.totalProfit?.toString() ?? "0",
+      totalFees: a.totalFees?.toString() ?? "0",
+      deployedAt: a.deployedAt ?? 0,
+      lastActivityAt: a.lastActivityAt ?? 0,
+    }))
+  );
+});
+
+// Cycle history for a specific agent
+app.get("/api/agents/cycles", async (c) => {
+  const agent = c.req.query("agent")?.toLowerCase();
+  if (!agent) return c.json({ error: "agent param required" }, 400);
+
+  const limit = Math.min(parseInt(c.req.query("limit") ?? "20"), 100);
+  const chainId = c.req.query("chainId") ?? "8453";
+  const agentHex = agent as `0x${string}`;
+
+  const cycles = await db
+    .select()
+    .from(schema.AgentCycle)
+    .where(
+      and(
+        eq(schema.AgentCycle.agentAddress, agentHex),
+        eq(schema.AgentCycle.chainId, Number(chainId))
+      )
+    )
+    .orderBy(desc(schema.AgentCycle.openedAt))
+    .limit(limit);
+
+  return c.json(
+    cycles.map((c) => ({
+      cycleId: c.cycleId,
+      status: c.status,
+      usdcStart: c.usdcStart?.toString() ?? "0",
+      usdcEnd: c.usdcEnd?.toString() ?? "0",
+      profit: c.profit?.toString() ?? "0",
+      fee: c.fee?.toString() ?? "0",
+      openedAt: c.openedAt ?? 0,
+      closedAt: c.closedAt ?? 0,
+      txHashOpen: c.txHashOpen,
+      txHashClose: c.txHashClose,
+    }))
+  );
+});
+
 app.use("/", graphql({ db, schema }));
 app.use("/graphql", graphql({ db, schema }));
 

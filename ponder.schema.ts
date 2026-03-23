@@ -114,6 +114,41 @@ export const UserPoints = onchainTable("UserPoints", (t) => ({
   lastUpdated: t.integer(),
 }));
 
+// ============ Agent Platform ============
+
+// Agents deployed via AgentFactory
+export const Agent = onchainTable("Agent", (t) => ({
+  id: t.text().primaryKey(), // "{chainId}-{agentAddress}"
+  chainId: t.integer(),
+  address: t.hex(),
+  owner: t.hex(),
+  status: t.text(), // "IDLE", "IN_POSITION", "PAUSED"
+  totalCycles: t.integer(),
+  winningCycles: t.integer(),
+  totalProfit: t.bigint(), // cumulative profit in USDC (6 decimals, signed via int stored as bigint)
+  totalFees: t.bigint(), // cumulative fees paid (6 decimals)
+  currentCycleId: t.integer(),
+  deployedAt: t.integer(),
+  lastActivityAt: t.integer(),
+}));
+
+// Individual trading cycles
+export const AgentCycle = onchainTable("AgentCycle", (t) => ({
+  id: t.text().primaryKey(), // "{chainId}-{agentAddress}-{cycleId}"
+  chainId: t.integer(),
+  agentAddress: t.hex(),
+  cycleId: t.integer(),
+  status: t.text(), // "OPEN", "CLOSED", "FORCE_CLOSED"
+  usdcStart: t.bigint(), // 6 decimals
+  usdcEnd: t.bigint(), // 6 decimals, null while open
+  profit: t.bigint(), // signed, 6 decimals
+  fee: t.bigint(), // 6 decimals
+  openedAt: t.integer(),
+  closedAt: t.integer(),
+  txHashOpen: t.hex(),
+  txHashClose: t.hex(),
+}));
+
 // Track unique users (lenders and borrowers)
 export const User = onchainTable("User", (t) => ({
   id: t.text().primaryKey(), // "{chainId}-{address}"
