@@ -3,7 +3,7 @@ import schema from "ponder:schema";
 import { Hono } from "hono";
 import { client, graphql } from "ponder";
 import { cors } from "hono/cors";
-import { eq, desc, and, gt } from "ponder";
+import { eq, desc, and, gt, notInArray } from "ponder";
 import { createPublicClient, http, erc20Abi } from "viem";
 import { base } from "viem/chains";
 
@@ -155,7 +155,9 @@ app.get("/api/active-offers", async (c) => {
   const limit = parseInt(c.req.query("limit") ?? "20");
   const chainId = c.req.query("chainId");
 
-  const conditions = [eq(schema.Offer.status, "ACTIVE"), gt(schema.Offer.amount, 0n)];
+  // Skip ghost offers from pre-upgrade cancelOffer bug (see docs/BUG-cancelled-offers-resurrection.md)
+  const GHOST_OFFERS = ["8453-2", "8453-15"];
+  const conditions = [eq(schema.Offer.status, "ACTIVE"), gt(schema.Offer.amount, 0n), notInArray(schema.Offer.id, GHOST_OFFERS)];
   if (chainId) conditions.push(eq(schema.Offer.chainId, Number(chainId)));
 
   const offers = await db
