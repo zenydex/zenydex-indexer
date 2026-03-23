@@ -14,6 +14,7 @@ async function ensureProtocolMetrics(context: any, chainId: number, timestamp: n
       chainId,
       totalWethLocked: 0n,
       totalUsdcLocked: 0n,
+      totalDepositVolume: 0n,
       totalBorrowVolume: 0n,
       totalRepaidVolume: 0n,
       totalLiquidatedVolume: 0n,
