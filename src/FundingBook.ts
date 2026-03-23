@@ -310,27 +310,10 @@ ponder.on("FundingBook:OfferCanceled", async ({ event, context }) => {
 
   const offer = await context.db.find(Offer, { id: offerId });
 
-  console.log(`[OfferCanceled] offer ${offerId} — current status: ${offer?.status}, amount: ${offer?.amount?.toString()}`);
-
-  // Delete and re-insert as CANCELED to guarantee the state persists
-  await context.db.delete(Offer, { id: offerId });
-  await context.db.insert(Offer).values({
-    id: offerId,
-    chainId,
-    lender: offer?.lender ?? ("0x0000000000000000000000000000000000000000" as `0x${string}`),
-    asset: offer?.asset ?? ("0x0000000000000000000000000000000000000000" as `0x${string}`),
-    amount: 0n,
-    originalPrincipal: offer?.originalPrincipal ?? 0n,
-    ratePerYear: offer?.ratePerYear ?? 0n,
-    minDuration: offer?.minDuration ?? 0,
-    maxDuration: offer?.maxDuration ?? 0,
-    autoRenew: offer?.autoRenew ?? false,
+  await context.db.update(Offer, { id: offerId }).set({
     status: "CANCELED",
-    createdAt: offer?.createdAt ?? timestamp,
+    amount: 0n,
   });
-
-  const after = await context.db.find(Offer, { id: offerId });
-  console.log(`[OfferCanceled] offer ${offerId} — after delete+insert: status=${after?.status}, amount=${after?.amount?.toString()}`);
 
   await context.db.insert(OfferEvent).values({
     id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
@@ -569,10 +552,10 @@ ponder.on("FundingBook:Repaid", async ({ event, context }) => {
     txHash: event.transaction.hash,
   });
 
-  // Restore offer amount for autoRenew loans
+  // Restore offer amount for autoRenew loans (only if offer wasn't cancelled)
   if (principalRepaid > 0n && loan.offerId) {
     const offer = await context.db.find(Offer, { id: loan.offerId });
-    if (offer && offer.autoRenew) {
+    if (offer && offer.autoRenew && offer.status !== "CANCELED") {
       await context.db.update(Offer, { id: loan.offerId }).set((prev) => ({
         amount: (prev.amount ?? 0n) + principalRepaid,
         status: "ACTIVE",
