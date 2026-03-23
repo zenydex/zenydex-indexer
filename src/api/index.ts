@@ -4,6 +4,16 @@ import { Hono } from "hono";
 import { client, graphql } from "ponder";
 import { cors } from "hono/cors";
 import { eq, desc, and, gt } from "ponder";
+import { createPublicClient, http, erc20Abi } from "viem";
+import { base } from "viem/chains";
+
+const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
+const WETH_ADDRESS = "0x4200000000000000000000000000000000000006" as const;
+
+const baseClient = createPublicClient({
+  chain: base,
+  transport: http(process.env.PONDER_RPC_URL_8453 ?? "https://mainnet.base.org"),
+});
 
 const app = new Hono();
 
@@ -421,6 +431,99 @@ app.get("/api/agents/cycles", async (c) => {
       txHashClose: c.txHashClose,
     }))
   );
+});
+
+const FUNDING_BOOK = "0xF1e4944cd45ED647c57A10B3D88D974d84E68145" as const;
+const COLLATERAL = "0x604b9926E40fD04A5145122930408b13243cD2Bb" as const;
+
+// Real TVL — reads actual contract balances on-chain
+app.get("/api/tvl", async (c) => {
+  try {
+    // Get all agent addresses
+    const agents = await db
+      .select({ address: schema.Agent.address })
+      .from(schema.Agent)
+      .where(eq(schema.Agent.chainId, 8453));
+
+    // Build multicall: FundingBook USDC + Collateral WETH + all agent balances
+    const calls = [
+      { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [FUNDING_BOOK] },
+      { address: WETH_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [COLLATERAL] },
+      ...agents.flatMap((a) => [
+        { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
+        { address: WETH_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
+      ]),
+    ];
+
+    const results = await baseClient.multicall({ contracts: calls });
+
+    const fundingBookUsdc = results[0]?.status === "success" ? (results[0].result as bigint) : 0n;
+    const collateralWeth = results[1]?.status === "success" ? (results[1].result as bigint) : 0n;
+
+    let agentUsdc = 0n;
+    let agentWeth = 0n;
+    for (let i = 2; i < results.length; i += 2) {
+      const usdcResult = results[i];
+      const wethResult = results[i + 1];
+      if (usdcResult && usdcResult.status === "success") agentUsdc += usdcResult.result as bigint;
+      if (wethResult && wethResult.status === "success") agentWeth += wethResult.result as bigint;
+    }
+
+    return c.json({
+      fundingBookUsdc: fundingBookUsdc.toString(),
+      collateralWeth: collateralWeth.toString(),
+      agentUsdc: agentUsdc.toString(),
+      agentWeth: agentWeth.toString(),
+      totalUsdc: (fundingBookUsdc + agentUsdc).toString(),
+      totalWeth: (collateralWeth + agentWeth).toString(),
+      agentCount: agents.length,
+    });
+  } catch {
+    return c.json({
+      fundingBookUsdc: "0", collateralWeth: "0",
+      agentUsdc: "0", agentWeth: "0",
+      totalUsdc: "0", totalWeth: "0", agentCount: 0,
+    });
+  }
+});
+
+// Agent TVL — reads on-chain USDC + WETH balances for all indexed agents
+app.get("/api/agents/tvl", async (c) => {
+  const chainId = c.req.query("chainId") ?? "8453";
+
+  const agents = await db
+    .select({ address: schema.Agent.address })
+    .from(schema.Agent)
+    .where(eq(schema.Agent.chainId, Number(chainId)));
+
+  if (agents.length === 0) {
+    return c.json({ totalUsdc: "0", totalWeth: "0", agentCount: 0 });
+  }
+
+  // Batch read all balances with multicall
+  const calls = agents.flatMap((a) => [
+    { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
+    { address: WETH_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
+  ]);
+
+  try {
+    const results = await baseClient.multicall({ contracts: calls });
+    let totalUsdc = 0n;
+    let totalWeth = 0n;
+    for (let i = 0; i < results.length; i += 2) {
+      const usdcResult = results[i];
+      const wethResult = results[i + 1];
+      if (usdcResult && usdcResult.status === "success") totalUsdc += usdcResult.result as bigint;
+      if (wethResult && wethResult.status === "success") totalWeth += wethResult.result as bigint;
+    }
+    return c.json({
+      totalUsdc: totalUsdc.toString(),
+      totalWeth: totalWeth.toString(),
+      agentCount: agents.length,
+    });
+  } catch {
+    return c.json({ totalUsdc: "0", totalWeth: "0", agentCount: agents.length });
+  }
 });
 
 app.use("/", graphql({ db, schema }));
