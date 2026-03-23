@@ -1,5 +1,9 @@
 import { ponder } from "ponder:registry";
-import { Agent, AgentCycle } from "../ponder.schema";
+import { Agent, AgentCycle, ProtocolMetrics } from "../ponder.schema";
+
+function metricsId(chainId: number) {
+  return `GLOBAL-${chainId}`;
+}
 
 ponder.on("AgentWallet:CycleOpened", async ({ event, context }) => {
   const chainId = context.chain.id;
@@ -32,6 +36,15 @@ ponder.on("AgentWallet:CycleOpened", async ({ event, context }) => {
     currentCycleId: cycleNum,
     lastActivityAt: timestamp,
   });
+
+  // Track agent cycle volume (USDC entering the cycle)
+  const existing = await context.db.find(ProtocolMetrics, { id: metricsId(chainId) });
+  if (existing) {
+    await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
+      totalAgentCycleVolume: (prev.totalAgentCycleVolume ?? 0n) + usdcAmount,
+      lastUpdated: timestamp,
+    }));
+  }
 });
 
 ponder.on("AgentWallet:CycleClosed", async ({ event, context }) => {
@@ -64,6 +77,15 @@ ponder.on("AgentWallet:CycleClosed", async ({ event, context }) => {
     totalFees: (prev.totalFees ?? 0n) + fee,
     lastActivityAt: timestamp,
   }));
+
+  // Track agent cycle volume (USDC exiting the cycle)
+  const existing = await context.db.find(ProtocolMetrics, { id: metricsId(chainId) });
+  if (existing) {
+    await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
+      totalAgentCycleVolume: (prev.totalAgentCycleVolume ?? 0n) + usdcEnd,
+      lastUpdated: timestamp,
+    }));
+  }
 });
 
 ponder.on("AgentWallet:ForceClosed", async ({ event, context }) => {

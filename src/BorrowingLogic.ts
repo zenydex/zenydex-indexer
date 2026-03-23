@@ -15,9 +15,13 @@ async function ensureProtocolMetrics(context: any, chainId: number, timestamp: n
       totalWethLocked: 0n,
       totalUsdcLocked: 0n,
       totalDepositVolume: 0n,
+      totalWithdrawVolume: 0n,
       totalBorrowVolume: 0n,
       totalRepaidVolume: 0n,
       totalLiquidatedVolume: 0n,
+      totalCollateralDeposited: 0n,
+      totalCollateralWithdrawn: 0n,
+      totalAgentCycleVolume: 0n,
       activeLoans: 0,
       totalLoans: 0,
       activeBorrowers: 0,
@@ -62,10 +66,11 @@ ponder.on("BorrowingLogic:CollateralDeposited", async ({ event, context }) => {
     txHash: event.transaction.hash,
   });
 
-  // Update TVL in protocol metrics
+  // Update TVL and collateral volume in protocol metrics
   await ensureProtocolMetrics(context, chainId, timestamp);
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
     totalWethLocked: (prev.totalWethLocked ?? 0n) + amount,
+    totalCollateralDeposited: (prev.totalCollateralDeposited ?? 0n) + amount,
     lastUpdated: timestamp,
   }));
 });
@@ -92,9 +97,10 @@ ponder.on("BorrowingLogic:CollateralWithdrawn", async ({ event, context }) => {
     txHash: event.transaction.hash,
   });
 
-  // Update TVL in protocol metrics
+  // Update TVL and collateral volume in protocol metrics
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
     totalWethLocked: (prev.totalWethLocked ?? 0n) - amount,
+    totalCollateralWithdrawn: (prev.totalCollateralWithdrawn ?? 0n) + amount,
     lastUpdated: timestamp,
   }));
 });

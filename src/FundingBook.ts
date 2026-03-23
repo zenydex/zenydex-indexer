@@ -202,9 +202,13 @@ async function ensureProtocolMetrics(context: any, chainId: number, timestamp: n
       totalWethLocked: 0n,
       totalUsdcLocked: 0n,
       totalDepositVolume: 0n,
+      totalWithdrawVolume: 0n,
       totalBorrowVolume: 0n,
       totalRepaidVolume: 0n,
       totalLiquidatedVolume: 0n,
+      totalCollateralDeposited: 0n,
+      totalCollateralWithdrawn: 0n,
+      totalAgentCycleVolume: 0n,
       activeLoans: 0,
       totalLoans: 0,
       activeBorrowers: 0,
@@ -334,6 +338,7 @@ ponder.on("FundingBook:OfferCanceled", async ({ event, context }) => {
     await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
       activeOffers: Math.max(0, (prev.activeOffers ?? 0) - 1),
       totalUsdcLocked: (prev.totalUsdcLocked ?? 0n) - canceledAmount,
+      totalWithdrawVolume: (prev.totalWithdrawVolume ?? 0n) + canceledAmount,
       lastUpdated: timestamp,
     }));
   }

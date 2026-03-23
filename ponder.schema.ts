@@ -81,9 +81,13 @@ export const ProtocolMetrics = onchainTable("ProtocolMetrics", (t) => ({
   totalWethLocked: t.bigint(), // Total WETH collateral deposited
   totalUsdcLocked: t.bigint(), // Total USDC in active offers
   totalDepositVolume: t.bigint(), // Cumulative USDC deposited into offers
+  totalWithdrawVolume: t.bigint(), // Cumulative USDC withdrawn (offer cancels)
   totalBorrowVolume: t.bigint(), // Cumulative borrowed amount
   totalRepaidVolume: t.bigint(), // Cumulative repaid amount
   totalLiquidatedVolume: t.bigint(), // Cumulative liquidated amount
+  totalCollateralDeposited: t.bigint(), // Cumulative WETH collateral deposited
+  totalCollateralWithdrawn: t.bigint(), // Cumulative WETH collateral withdrawn
+  totalAgentCycleVolume: t.bigint(), // Cumulative USDC through agent cycles (open + close)
   activeLoans: t.integer(), // Currently active loans
   totalLoans: t.integer(), // Total loans created
   activeBorrowers: t.integer(), // Borrowers with active loans
