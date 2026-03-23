@@ -433,43 +433,67 @@ app.get("/api/agents/cycles", async (c) => {
   );
 });
 
+// ============ TVL Snapshot (cached, refreshed every 5 min) ============
+
 const FUNDING_BOOK = "0xF1e4944cd45ED647c57A10B3D88D974d84E68145" as const;
 const COLLATERAL = "0x604b9926E40fD04A5145122930408b13243cD2Bb" as const;
+const BATCH_SIZE = 100; // agents per multicall batch
+const TVL_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
-// Real TVL — reads actual contract balances on-chain
-app.get("/api/tvl", async (c) => {
+interface TvlSnapshot {
+  fundingBookUsdc: string;
+  collateralWeth: string;
+  agentUsdc: string;
+  agentWeth: string;
+  totalUsdc: string;
+  totalWeth: string;
+  agentCount: number;
+  updatedAt: number;
+}
+
+let tvlCache: TvlSnapshot | null = null;
+let tvlRefreshing = false;
+
+async function refreshTvl() {
+  if (tvlRefreshing) return;
+  tvlRefreshing = true;
   try {
-    // Get all agent addresses
+    // 1. Core protocol balances
+    const coreResults = await baseClient.multicall({
+      contracts: [
+        { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf", args: [FUNDING_BOOK] },
+        { address: WETH_ADDRESS, abi: erc20Abi, functionName: "balanceOf", args: [COLLATERAL] },
+      ],
+    });
+    const fundingBookUsdc = coreResults[0]?.status === "success" ? (coreResults[0].result as bigint) : 0n;
+    const collateralWeth = coreResults[1]?.status === "success" ? (coreResults[1].result as bigint) : 0n;
+
+    // 2. All agent addresses
     const agents = await db
       .select({ address: schema.Agent.address })
       .from(schema.Agent)
       .where(eq(schema.Agent.chainId, 8453));
 
-    // Build multicall: FundingBook USDC + Collateral WETH + all agent balances
-    const calls = [
-      { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [FUNDING_BOOK] },
-      { address: WETH_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [COLLATERAL] },
-      ...agents.flatMap((a) => [
-        { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
-        { address: WETH_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
-      ]),
-    ];
-
-    const results = await baseClient.multicall({ contracts: calls });
-
-    const fundingBookUsdc = results[0]?.status === "success" ? (results[0].result as bigint) : 0n;
-    const collateralWeth = results[1]?.status === "success" ? (results[1].result as bigint) : 0n;
-
+    // 3. Batch multicall agent balances
     let agentUsdc = 0n;
     let agentWeth = 0n;
-    for (let i = 2; i < results.length; i += 2) {
-      const usdcResult = results[i];
-      const wethResult = results[i + 1];
-      if (usdcResult && usdcResult.status === "success") agentUsdc += usdcResult.result as bigint;
-      if (wethResult && wethResult.status === "success") agentWeth += wethResult.result as bigint;
+
+    for (let i = 0; i < agents.length; i += BATCH_SIZE) {
+      const batch = agents.slice(i, i + BATCH_SIZE);
+      const calls = batch.flatMap((a) => [
+        { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
+        { address: WETH_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
+      ]);
+      const results = await baseClient.multicall({ contracts: calls });
+      for (let j = 0; j < results.length; j += 2) {
+        const usdcResult = results[j];
+        const wethResult = results[j + 1];
+        if (usdcResult && usdcResult.status === "success") agentUsdc += usdcResult.result as bigint;
+        if (wethResult && wethResult.status === "success") agentWeth += wethResult.result as bigint;
+      }
     }
 
-    return c.json({
+    tvlCache = {
       fundingBookUsdc: fundingBookUsdc.toString(),
       collateralWeth: collateralWeth.toString(),
       agentUsdc: agentUsdc.toString(),
@@ -477,53 +501,35 @@ app.get("/api/tvl", async (c) => {
       totalUsdc: (fundingBookUsdc + agentUsdc).toString(),
       totalWeth: (collateralWeth + agentWeth).toString(),
       agentCount: agents.length,
-    });
-  } catch {
+      updatedAt: Date.now(),
+    };
+  } catch (err) {
+    console.error("TVL refresh failed:", err);
+  } finally {
+    tvlRefreshing = false;
+  }
+}
+
+// Start background refresh loop
+setInterval(refreshTvl, TVL_REFRESH_MS);
+// Initial refresh after 5s (let Ponder boot first)
+setTimeout(refreshTvl, 5_000);
+
+// Serve cached TVL snapshot
+app.get("/api/tvl", async (c) => {
+  if (!tvlCache) {
+    // First request before cache is ready — do a sync refresh
+    await refreshTvl();
+  }
+  if (!tvlCache) {
     return c.json({
       fundingBookUsdc: "0", collateralWeth: "0",
       agentUsdc: "0", agentWeth: "0",
-      totalUsdc: "0", totalWeth: "0", agentCount: 0,
+      totalUsdc: "0", totalWeth: "0",
+      agentCount: 0, updatedAt: 0,
     });
   }
-});
-
-// Agent TVL — reads on-chain USDC + WETH balances for all indexed agents
-app.get("/api/agents/tvl", async (c) => {
-  const chainId = c.req.query("chainId") ?? "8453";
-
-  const agents = await db
-    .select({ address: schema.Agent.address })
-    .from(schema.Agent)
-    .where(eq(schema.Agent.chainId, Number(chainId)));
-
-  if (agents.length === 0) {
-    return c.json({ totalUsdc: "0", totalWeth: "0", agentCount: 0 });
-  }
-
-  // Batch read all balances with multicall
-  const calls = agents.flatMap((a) => [
-    { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
-    { address: WETH_ADDRESS, abi: erc20Abi, functionName: "balanceOf" as const, args: [a.address!] },
-  ]);
-
-  try {
-    const results = await baseClient.multicall({ contracts: calls });
-    let totalUsdc = 0n;
-    let totalWeth = 0n;
-    for (let i = 0; i < results.length; i += 2) {
-      const usdcResult = results[i];
-      const wethResult = results[i + 1];
-      if (usdcResult && usdcResult.status === "success") totalUsdc += usdcResult.result as bigint;
-      if (wethResult && wethResult.status === "success") totalWeth += wethResult.result as bigint;
-    }
-    return c.json({
-      totalUsdc: totalUsdc.toString(),
-      totalWeth: totalWeth.toString(),
-      agentCount: agents.length,
-    });
-  } catch {
-    return c.json({ totalUsdc: "0", totalWeth: "0", agentCount: agents.length });
-  }
+  return c.json(tvlCache);
 });
 
 app.use("/", graphql({ db, schema }));
