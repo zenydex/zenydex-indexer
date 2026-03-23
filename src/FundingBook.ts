@@ -356,9 +356,11 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
   if (offer) {
     const newAmount = offer.amount! - filled;
     offerFullyFilled = newAmount === 0n;
+    // Don't resurrect a cancelled offer
+    const newStatus = offer.status === "CANCELED" ? "CANCELED" : (offerFullyFilled ? "FILLED" : "ACTIVE");
     await context.db.update(Offer, { id: scopedOfferId }).set({
       amount: newAmount,
-      status: offerFullyFilled ? "FILLED" : "ACTIVE",
+      status: newStatus,
     });
 
     // If offer is fully filled, update lender's active offers count
