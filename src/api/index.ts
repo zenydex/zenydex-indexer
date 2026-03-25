@@ -425,6 +425,8 @@ app.get("/api/agents/cycles", async (c) => {
       usdcEnd: c.usdcEnd?.toString() ?? "0",
       profit: c.profit?.toString() ?? "0",
       fee: c.fee?.toString() ?? "0",
+      entryEthPrice: c.entryEthPrice?.toString() ?? "0",
+      exitEthPrice: c.exitEthPrice?.toString() ?? "0",
       openedAt: c.openedAt ?? 0,
       closedAt: c.closedAt ?? 0,
       txHashOpen: c.txHashOpen,

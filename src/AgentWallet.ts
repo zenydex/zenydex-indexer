@@ -1,6 +1,39 @@
 import { ponder } from "ponder:registry";
 import { Agent, AgentCycle, ProtocolMetrics } from "../ponder.schema";
 
+// Chainlink ETH/USD price feed (8 decimals)
+// Base mainnet: 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70
+const CHAINLINK_ETH_USD: Record<number, `0x${string}`> = {
+  8453: "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70",
+  84532: "0x4aDC67D68B769fAeA0D2a41a8eF1B8FcE369EFC0", // Base Sepolia
+};
+
+const CHAINLINK_ABI = [
+  {
+    type: "function",
+    name: "latestAnswer",
+    inputs: [],
+    outputs: [{ name: "", type: "int256" }],
+    stateMutability: "view",
+  },
+] as const;
+
+async function getEthPrice(context: any): Promise<bigint> {
+  const chainId = context.chain.id;
+  const feedAddr = CHAINLINK_ETH_USD[chainId];
+  if (!feedAddr) return 0n;
+  try {
+    const price = await context.client.readContract({
+      address: feedAddr,
+      abi: CHAINLINK_ABI,
+      functionName: "latestAnswer",
+    });
+    return price as bigint;
+  } catch {
+    return 0n;
+  }
+}
+
 function metricsId(chainId: number) {
   return `GLOBAL-${chainId}`;
 }
@@ -14,6 +47,8 @@ ponder.on("AgentWallet:CycleOpened", async ({ event, context }) => {
   const agentId = `${chainId}-${agentAddress}`;
   const cycleRecordId = `${agentId}-${cycleNum}`;
 
+  const entryEthPrice = await getEthPrice(context);
+
   await context.db.insert(AgentCycle).values({
     id: cycleRecordId,
     chainId,
@@ -24,6 +59,8 @@ ponder.on("AgentWallet:CycleOpened", async ({ event, context }) => {
     usdcEnd: 0n,
     profit: 0n,
     fee: 0n,
+    entryEthPrice,
+    exitEthPrice: 0n,
     openedAt: timestamp,
     closedAt: 0,
     txHashOpen: event.transaction.hash,
@@ -56,6 +93,8 @@ ponder.on("AgentWallet:CycleClosed", async ({ event, context }) => {
   const agentId = `${chainId}-${agentAddress}`;
   const cycleRecordId = `${agentId}-${cycleNum}`;
 
+  const exitEthPrice = await getEthPrice(context);
+
   // Update cycle record
   await context.db.update(AgentCycle, { id: cycleRecordId }).set({
     status: "CLOSED",
@@ -63,6 +102,7 @@ ponder.on("AgentWallet:CycleClosed", async ({ event, context }) => {
     usdcEnd,
     profit,
     fee,
+    exitEthPrice,
     closedAt: timestamp,
     txHashClose: event.transaction.hash,
   });
@@ -106,11 +146,10 @@ ponder.on("AgentWallet:ForceClosed", async ({ event, context }) => {
     txHashClose: event.transaction.hash,
   });
 
-  await context.db.update(Agent, { id: agentId }).set((prev) => ({
-    status: "IDLE",
-    totalCycles: (prev.totalCycles ?? 0) + 1,
+  await context.db.update(Agent, { id: agentId }).set({
+    status: "PAUSED",
     lastActivityAt: timestamp,
-  }));
+  });
 });
 
 ponder.on("AgentWallet:Paused", async ({ event, context }) => {

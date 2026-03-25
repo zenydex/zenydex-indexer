@@ -147,6 +147,8 @@ export const AgentCycle = onchainTable("AgentCycle", (t) => ({
   usdcEnd: t.bigint(), // 6 decimals, null while open
   profit: t.bigint(), // signed, 6 decimals
   fee: t.bigint(), // 6 decimals
+  entryEthPrice: t.bigint(), // ETH price at cycle open (8 decimals, from Chainlink)
+  exitEthPrice: t.bigint(), // ETH price at cycle close (8 decimals, from Chainlink)
   openedAt: t.integer(),
   closedAt: t.integer(),
   txHashOpen: t.hex(),
