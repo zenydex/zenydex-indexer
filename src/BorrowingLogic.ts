@@ -1,5 +1,5 @@
 import { ponder } from "ponder:registry";
-import { Borrower, CollateralEvent, ProtocolMetrics } from "../ponder.schema";
+import { Borrower, BorrowerCollateral, CollateralEvent, ProtocolMetrics } from "../ponder.schema";
 
 function metricsId(chainId: number) {
   return `GLOBAL-${chainId}`;
@@ -39,11 +39,14 @@ async function ensureProtocolMetrics(context: any, chainId: number, timestamp: n
 
 ponder.on("BorrowingLogic:CollateralDeposited", async ({ event, context }) => {
   const chainId = context.chain.id;
-  const { borrower: rawBorrower, amount } = event.args;
+  const { borrower: rawBorrower, token: rawToken, amount } = event.args;
   const borrower = rawBorrower.toLowerCase() as `0x${string}`;
+  const asset = rawToken.toLowerCase() as `0x${string}`;
   const borrowerId = `${chainId}-${borrower}`;
+  const collateralId = `${chainId}-${borrower}-${asset}`;
   const timestamp = Number(event.block.timestamp);
 
+  // Update legacy Borrower table (backward compat)
   await context.db.insert(Borrower).values({
     id: borrowerId,
     chainId,
@@ -56,17 +59,30 @@ ponder.on("BorrowingLogic:CollateralDeposited", async ({ event, context }) => {
     lastUpdated: timestamp,
   }));
 
+  // Update per-asset collateral tracking
+  await context.db.insert(BorrowerCollateral).values({
+    id: collateralId,
+    chainId,
+    borrower,
+    asset,
+    amount,
+    lastUpdated: timestamp,
+  }).onConflictDoUpdate((prev) => ({
+    amount: (prev.amount ?? 0n) + amount,
+    lastUpdated: timestamp,
+  }));
+
   await context.db.insert(CollateralEvent).values({
     id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
     chainId,
     borrower,
+    asset,
     type: "DEPOSITED",
     amount,
     timestamp,
     txHash: event.transaction.hash,
   });
 
-  // Update TVL and collateral volume in protocol metrics
   await ensureProtocolMetrics(context, chainId, timestamp);
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
     totalWethLocked: (prev.totalWethLocked ?? 0n) + amount,
@@ -77,9 +93,11 @@ ponder.on("BorrowingLogic:CollateralDeposited", async ({ event, context }) => {
 
 ponder.on("BorrowingLogic:CollateralWithdrawn", async ({ event, context }) => {
   const chainId = context.chain.id;
-  const { borrower: rawBorrower, amount } = event.args;
+  const { borrower: rawBorrower, token: rawToken, amount } = event.args;
   const borrower = rawBorrower.toLowerCase() as `0x${string}`;
+  const asset = rawToken.toLowerCase() as `0x${string}`;
   const borrowerId = `${chainId}-${borrower}`;
+  const collateralId = `${chainId}-${borrower}-${asset}`;
   const timestamp = Number(event.block.timestamp);
 
   await context.db.update(Borrower, { id: borrowerId }).set((prev) => ({
@@ -87,17 +105,30 @@ ponder.on("BorrowingLogic:CollateralWithdrawn", async ({ event, context }) => {
     lastUpdated: timestamp,
   }));
 
+  // Update per-asset collateral tracking
+  await context.db.insert(BorrowerCollateral).values({
+    id: collateralId,
+    chainId,
+    borrower,
+    asset,
+    amount: 0n,
+    lastUpdated: timestamp,
+  }).onConflictDoUpdate((prev) => ({
+    amount: (prev.amount ?? 0n) > amount ? (prev.amount ?? 0n) - amount : 0n,
+    lastUpdated: timestamp,
+  }));
+
   await context.db.insert(CollateralEvent).values({
     id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
     chainId,
     borrower,
+    asset,
     type: "WITHDRAWN",
     amount,
     timestamp,
     txHash: event.transaction.hash,
   });
 
-  // Update TVL and collateral volume in protocol metrics
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
     totalWethLocked: (prev.totalWethLocked ?? 0n) - amount,
     totalCollateralWithdrawn: (prev.totalCollateralWithdrawn ?? 0n) + amount,
@@ -107,7 +138,7 @@ ponder.on("BorrowingLogic:CollateralWithdrawn", async ({ event, context }) => {
 
 ponder.on("BorrowingLogic:HealthFactorUpdated", async ({ event, context }) => {
   const chainId = context.chain.id;
-  const { borrower: rawBorrower, healthFactor } = event.args;
+  const { borrower: rawBorrower, token: _rawToken, healthFactor } = event.args;
   const borrower = rawBorrower.toLowerCase() as `0x${string}`;
   const borrowerId = `${chainId}-${borrower}`;
 
@@ -126,9 +157,11 @@ ponder.on("BorrowingLogic:HealthFactorUpdated", async ({ event, context }) => {
 
 ponder.on("BorrowingLogic:Liquidated", async ({ event, context }) => {
   const chainId = context.chain.id;
-  const { borrower: rawBorrower, collateralSeized, loanId } = event.args;
+  const { borrower: rawBorrower, collateralTokenUsed: rawToken, collateralSeized, loanId } = event.args;
   const borrower = rawBorrower.toLowerCase() as `0x${string}`;
+  const asset = rawToken.toLowerCase() as `0x${string}`;
   const borrowerId = `${chainId}-${borrower}`;
+  const collateralId = `${chainId}-${borrower}-${asset}`;
   const timestamp = Number(event.block.timestamp);
 
   await context.db.update(Borrower, { id: borrowerId }).set((prev) => ({
@@ -136,17 +169,30 @@ ponder.on("BorrowingLogic:Liquidated", async ({ event, context }) => {
     lastUpdated: timestamp,
   }));
 
+  // Update per-asset collateral tracking
+  await context.db.insert(BorrowerCollateral).values({
+    id: collateralId,
+    chainId,
+    borrower,
+    asset,
+    amount: 0n,
+    lastUpdated: timestamp,
+  }).onConflictDoUpdate((prev) => ({
+    amount: (prev.amount ?? 0n) > collateralSeized ? (prev.amount ?? 0n) - collateralSeized : 0n,
+    lastUpdated: timestamp,
+  }));
+
   await context.db.insert(CollateralEvent).values({
     id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
     chainId,
     borrower,
+    asset,
     type: "SEIZED",
     amount: collateralSeized,
     timestamp,
     txHash: event.transaction.hash,
   });
 
-  // Update TVL in protocol metrics (collateral is removed from protocol)
   await context.db.update(ProtocolMetrics, { id: metricsId(chainId) }).set((prev) => ({
     totalWethLocked: (prev.totalWethLocked ?? 0n) - collateralSeized,
     lastUpdated: timestamp,

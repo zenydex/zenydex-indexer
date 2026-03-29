@@ -390,6 +390,20 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
   // Read ETH price at borrow time for PnL tracking
   const entryPrice = await readEthPrice(context, chainId);
 
+  // Read which collateral token backs this loan (V2 multi-collateral)
+  let collateralAsset: `0x${string}` | undefined;
+  try {
+    const colToken = await context.client.readContract({
+      abi: context.contracts.BorrowingLogic.abi,
+      address: context.contracts.BorrowingLogic.address as `0x${string}`,
+      functionName: "getLoanCollateral",
+      args: [loanId],
+    });
+    collateralAsset = (colToken as string).toLowerCase() as `0x${string}`;
+  } catch {
+    // V1 loans don't have loanCollateral mapping — default handled by contract
+  }
+
   await context.db.insert(Loan).values({
     id: scopedLoanId,
     chainId,
@@ -397,6 +411,7 @@ ponder.on("FundingBook:FundingFilled", async ({ event, context }) => {
     lender: (loanData[0] as string).toLowerCase() as `0x${string}`,
     borrower: borrowerAddress,
     asset: loanData[2],
+    collateralAsset: collateralAsset ?? ("0x0000000000000000000000000000000000000000" as `0x${string}`),
     principal: loanData[3],
     ratePerYear: loanData[4],
     startTs: loanData[5],

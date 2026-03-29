@@ -21,7 +21,8 @@ export const Loan = onchainTable("Loan", (t) => ({
   offerId: t.text(),
   lender: t.hex(),
   borrower: t.hex(),
-  asset: t.hex(),
+  asset: t.hex(), // borrow asset (USDC)
+  collateralAsset: t.hex(), // collateral token backing this loan
   principal: t.bigint(),
   ratePerYear: t.bigint(),
   startTs: t.integer(),
@@ -29,7 +30,7 @@ export const Loan = onchainTable("Loan", (t) => ({
   lastAccrualTs: t.integer(),
   unpaidInterest: t.bigint(),
   autoRenew: t.boolean(),
-  entryPrice: t.bigint(), // ETH price at borrow time (18 decimals)
+  entryPrice: t.bigint(), // collateral token price at borrow time (18 decimals)
   status: t.text(), // "ACTIVE", "REPAID", "LIQUIDATED"
   createdAt: t.integer(),
 }));
@@ -37,9 +38,19 @@ export const Loan = onchainTable("Loan", (t) => ({
 export const Borrower = onchainTable("Borrower", (t) => ({
   id: t.text().primaryKey(), // "{chainId}-{address}"
   chainId: t.integer(),
-  collateralAmount: t.bigint(),
+  collateralAmount: t.bigint(), // deprecated: V1 WETH-only, kept for compat
   totalDebt: t.bigint(), // tracked across all active loans
   healthFactor: t.bigint(),
+  lastUpdated: t.integer(),
+}));
+
+// Per-user per-token collateral tracking (V2 multi-collateral)
+export const BorrowerCollateral = onchainTable("BorrowerCollateral", (t) => ({
+  id: t.text().primaryKey(), // "{chainId}-{borrower}-{asset}"
+  chainId: t.integer(),
+  borrower: t.hex(),
+  asset: t.hex(),
+  amount: t.bigint(),
   lastUpdated: t.integer(),
 }));
 
@@ -68,6 +79,7 @@ export const CollateralEvent = onchainTable("CollateralEvent", (t) => ({
   id: t.text().primaryKey(), // "{chainId}-{txHash}-{logIndex}"
   chainId: t.integer(),
   borrower: t.hex(),
+  asset: t.hex(), // collateral token address
   type: t.text(), // "DEPOSITED", "WITHDRAWN", "SEIZED"
   amount: t.bigint(),
   timestamp: t.integer(),

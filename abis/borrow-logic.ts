@@ -80,6 +80,13 @@ export const BORROW_LOGIC_ABI = [
   },
   {
     "type": "function",
+    "name": "getLoanCollateral",
+    "inputs": [{ "name": "loanId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getMaxBorrowable",
     "inputs": [
       { "name": "borrower", "type": "address", "internalType": "address" },
@@ -326,6 +333,7 @@ export const BORROW_LOGIC_ABI = [
     "name": "CollateralDeposited",
     "inputs": [
       { "name": "borrower", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "token", "type": "address", "indexed": true, "internalType": "address" },
       { "name": "amount", "type": "uint256", "indexed": false, "internalType": "uint256" }
     ],
     "anonymous": false
@@ -335,6 +343,7 @@ export const BORROW_LOGIC_ABI = [
     "name": "CollateralWithdrawn",
     "inputs": [
       { "name": "borrower", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "token", "type": "address", "indexed": true, "internalType": "address" },
       { "name": "amount", "type": "uint256", "indexed": false, "internalType": "uint256" }
     ],
     "anonymous": false
@@ -363,6 +372,7 @@ export const BORROW_LOGIC_ABI = [
     "name": "HealthFactorUpdated",
     "inputs": [
       { "name": "borrower", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "token", "type": "address", "indexed": true, "internalType": "address" },
       { "name": "healthFactor", "type": "uint256", "indexed": false, "internalType": "uint256" }
     ],
     "anonymous": false
@@ -381,6 +391,7 @@ export const BORROW_LOGIC_ABI = [
     "inputs": [
       { "name": "borrower", "type": "address", "indexed": true, "internalType": "address" },
       { "name": "liquidator", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "collateralTokenUsed", "type": "address", "indexed": true, "internalType": "address" },
       { "name": "collateralSeized", "type": "uint256", "indexed": false, "internalType": "uint256" },
       { "name": "loanId", "type": "uint256", "indexed": false, "internalType": "uint256" }
     ],
