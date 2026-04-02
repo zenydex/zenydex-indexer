@@ -567,10 +567,10 @@ ponder.on("FundingBook:Repaid", async ({ event, context }) => {
     txHash: event.transaction.hash,
   });
 
-  // Restore offer amount for autoRenew loans
+  // Restore offer amount for autoRenew loans (only if offer wasn't cancelled)
   if (principalRepaid > 0n && loan.offerId) {
     const offer = await context.db.find(Offer, { id: loan.offerId });
-    if (offer && offer.autoRenew) {
+    if (offer && offer.autoRenew && offer.status !== "CANCELED") {
       await context.db.update(Offer, { id: loan.offerId }).set((prev) => ({
         amount: (prev.amount ?? 0n) + principalRepaid,
         status: "ACTIVE",
